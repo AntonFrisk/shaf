@@ -1,0 +1,12 @@
+---
+description: Linear issues for Softhouse AF team in this workspace
+alwaysApply: true
+---
+
+# Linear (Softhouse AF)
+
+When using the Linear MCP server in this repo:
+
+- Default to the **Softhouse AF** team for listing, creating, and updating issues.
+- If a tool accepts `teamId` or team filter parameters, resolve the Softhouse AF team first (e.g. list teams and match name "Softhouse AF") and use that id.
+- Prefer issues and projects scoped to Softhouse AF unless the user names another team.

@@ -1,0 +1,39 @@
+---
+description: 
+alwaysApply: true
+---
+
+# Environment File Management
+
+## Critical Rule: Never Edit .env Files
+
+**NEVER** edit, update, or manage the `.env` file directly. This file contains sensitive credentials and is managed by the user.
+
+## What to Do Instead
+
+**ALWAYS** edit `.env.example` when you need to:
+- Add new environment variables
+- Update variable documentation
+- Change default values
+- Add configuration examples
+
+## Examples
+
+### ❌ BAD - Do NOT do this
+```bash
+# Editing .env file
+echo "NEW_VAR=value" >> .env
+```
+
+### ✅ GOOD - Do this instead
+```bash
+# Edit .env.example to document the variable
+echo "NEW_VAR=your-value-here" >> .env.example
+```
+
+## Rationale
+
+- `.env` contains actual credentials and secrets
+- `.env` is user-managed and git-ignored
+- `.env.example` is the template that gets committed
+- Users copy `.env.example` to `.env` and fill in their own values
