@@ -1,0 +1,574 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { nextStep } from "@/lib/astar";
+import { BeatEngine } from "@/lib/beat";
+import { generateMaze } from "@/lib/generate";
+import { isWalkable, key, samePoint, step } from "@/lib/grid";
+import { loadHighScore, saveHighScore } from "@/lib/storage";
+import {
+  BPM_DEFAULT,
+  CHASER_LOOK_AHEAD,
+  CHASER_SPAWN,
+  COLORS,
+  Direction,
+  GameState,
+  Item,
+  ItemMap,
+  Layout,
+  Point,
+  SLOWMO_BEATS,
+  SLOWMO_FACTOR,
+  STAR_BEATS,
+} from "@/lib/types";
+
+const KEY_MAP: Record<string, Direction> = {
+  ArrowUp: "up", w: "up", W: "up",
+  ArrowDown: "down", s: "down", S: "down",
+  ArrowLeft: "left", a: "left", A: "left",
+  ArrowRight: "right", d: "right", D: "right",
+};
+
+const SIZES = [15, 21, 31];
+
+interface Mutable {
+  state: GameState;
+  layout: Layout;
+  items: ItemMap;
+  playerPos: Point;
+  score: number;
+  highScore: number;
+  slowLeft: number;
+  starLeft: number;
+  starActive: boolean;
+  countdownVal: number;
+  pendingInput: Direction | null;
+  chaserActive: boolean;
+  chaserEliminated: boolean;
+  chaserPos: Point;
+  chaserVisual: { x: number; y: number };
+  cellSize: number;
+}
+
+export default function Game() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const beatRef = useRef<BeatEngine | null>(null);
+  const gRef = useRef<Mutable | null>(null);
+  const rafRef = useRef<number>(0);
+  const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sizeRef = useRef(15);
+
+  // React state only for low-frequency UI (toolbar enable/disable).
+  const [screen, setScreen] = useState<GameState>(GameState.TITLE);
+  const [size, setSize] = useState(15);
+
+  // ── helpers bound to current mutable state ──────────────────────────────────
+  const tilePx = (p: Point) => {
+    const cs = gRef.current!.cellSize;
+    return { x: p.col * cs + cs / 2, y: p.row * cs + cs / 2 };
+  };
+
+  const layoutCanvas = () => {
+    const g = gRef.current!;
+    const canvas = canvasRef.current!;
+    const n = g.layout.width;
+    const avail = Math.min(window.innerWidth, window.innerHeight - 120) * 0.92;
+    g.cellSize = Math.max(12, Math.floor(Math.min(avail, 660) / n));
+    canvas.width = g.cellSize * n;
+    canvas.height = g.cellSize * n;
+  };
+
+  const newMaze = () => {
+    const g = gRef.current!;
+    const { layout, items } = generateMaze(sizeRef.current);
+    g.layout = layout;
+    g.items = JSON.parse(JSON.stringify(items)) as ItemMap;
+    g.playerPos = { ...layout.start };
+    layoutCanvas();
+  };
+
+  const resetState = () => {
+    const g = gRef.current!;
+    g.score = 0;
+    g.slowLeft = 0;
+    g.starLeft = 0;
+    g.starActive = false;
+    g.pendingInput = null;
+    g.chaserActive = false;
+    g.chaserEliminated = false;
+    g.chaserPos = { row: 0, col: 0 };
+    beatRef.current!.resetBPM();
+    newMaze();
+  };
+
+  const transition = (state: GameState) => {
+    const g = gRef.current!;
+    g.state = state;
+    setScreen(state);
+    if (state === GameState.WIN) {
+      beatRef.current!.stop();
+      g.highScore = saveHighScore(g.score);
+    } else if (state === GameState.LOSE) {
+      beatRef.current!.stop();
+    }
+  };
+
+  // returns true if the game ended this beat
+  const collision = (): boolean => {
+    const g = gRef.current!;
+    if (!g.chaserActive || !samePoint(g.chaserPos, g.playerPos)) return false;
+    if (g.starActive) {
+      g.chaserActive = false;
+      g.chaserEliminated = true;
+      g.score += 500;
+      return false;
+    }
+    transition(GameState.LOSE);
+    return true;
+  };
+
+  const teleport = () => {
+    const g = gRef.current!;
+    const item = g.items[key(g.playerPos)];
+    if (item?.type === "PORTAL" && item.partner) g.playerPos = { ...item.partner };
+  };
+
+  const pickup = () => {
+    const g = gRef.current!;
+    const k = key(g.playerPos);
+    const item = g.items[k];
+    if (!item) return;
+    if (item.type === "APPLE") {
+      g.slowLeft = SLOWMO_BEATS;
+      beatRef.current!.setBPM(BPM_DEFAULT * SLOWMO_FACTOR);
+      g.score += 100;
+      delete g.items[k];
+    } else if (item.type === "STAR") {
+      g.starLeft = STAR_BEATS;
+      g.starActive = true;
+      g.score += 200;
+      delete g.items[k];
+    }
+  };
+
+  const tickPowerUps = () => {
+    const g = gRef.current!;
+    if (g.slowLeft > 0 && --g.slowLeft === 0) beatRef.current!.resetBPM();
+    if (g.starLeft > 0 && --g.starLeft === 0) g.starActive = false;
+  };
+
+  // ── beat callback ───────────────────────────────────────────────────────────
+  const onBeat = (beatNum: number) => {
+    const g = gRef.current!;
+    if (g.state !== GameState.PLAYING) return;
+
+    g.score += 10; // survival points
+
+    if (!g.chaserActive && !g.chaserEliminated && beatNum >= CHASER_SPAWN) {
+      g.chaserActive = true;
+      g.chaserPos = { ...g.layout.start };
+      g.chaserVisual = tilePx(g.chaserPos);
+    } else if (g.chaserActive) {
+      const res = nextStep(g.layout, g.chaserPos, g.playerPos, CHASER_LOOK_AHEAD);
+      if (res.next) g.chaserPos = res.next;
+      if (collision()) return;
+    }
+
+    const dir = g.pendingInput;
+    g.pendingInput = null;
+    if (dir) {
+      const next = step(g.playerPos, dir);
+      if (isWalkable(g.layout, next)) {
+        g.playerPos = next;
+        teleport();
+        pickup();
+        if (collision()) return;
+        if (samePoint(g.playerPos, g.layout.goal)) {
+          g.score += 1000;
+          transition(GameState.WIN);
+          return;
+        }
+      }
+    }
+
+    tickPowerUps();
+  };
+
+  // ── countdown → play ────────────────────────────────────────────────────────
+  const enterCountdown = () => {
+    const g = gRef.current!;
+    beatRef.current!.init();
+    resetState();
+    g.countdownVal = 3;
+    transition(GameState.COUNTDOWN);
+    let n = 3;
+    countdownTimer.current = setInterval(() => {
+      n--;
+      g.countdownVal = n;
+      if (n <= 0) {
+        if (countdownTimer.current) clearInterval(countdownTimer.current);
+        setTimeout(() => {
+          g.state = GameState.PLAYING;
+          setScreen(GameState.PLAYING);
+          beatRef.current!.onBeat = onBeat;
+          beatRef.current!.start();
+        }, 600);
+      }
+    }, 1000);
+  };
+
+  // ── render loop ─────────────────────────────────────────────────────────────
+  const renderLoop = () => {
+    rafRef.current = requestAnimationFrame(renderLoop);
+    const g = gRef.current;
+    const canvas = canvasRef.current;
+    const beat = beatRef.current;
+    if (!g || !canvas || !beat) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    if (g.chaserActive) {
+      const t = tilePx(g.chaserPos);
+      g.chaserVisual.x += (t.x - g.chaserVisual.x) * 0.18;
+      g.chaserVisual.y += (t.y - g.chaserVisual.y) * 0.18;
+    }
+    beat.pulse = Math.max(0, beat.pulse - 0.04);
+
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    drawGrid(ctx, g);
+
+    if (g.state !== GameState.TITLE && g.state !== GameState.COUNTDOWN) {
+      if (g.chaserActive) drawChaser(ctx, g);
+      drawPlayer(ctx, g);
+      drawHUD(ctx, g, canvas, beat.currentBeat);
+    }
+    drawBeatPulse(ctx, canvas, beat.pulse);
+    drawOverlay(ctx, g, canvas);
+  };
+
+  // ── drawing ─────────────────────────────────────────────────────────────────
+  const drawGrid = (ctx: CanvasRenderingContext2D, g: Mutable) => {
+    const cs = g.cellSize;
+    const n = g.layout.width;
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const x = c * cs;
+        const y = r * cs;
+        const wall = g.layout.grid[r][c] === 1;
+        ctx.fillStyle = wall ? COLORS.wall : COLORS.floor;
+        ctx.fillRect(x, y, cs, cs);
+        if (wall) {
+          ctx.fillStyle = COLORS.wallEdge;
+          ctx.fillRect(x + 1, y + 1, cs - 2, cs - 2);
+          continue;
+        }
+        if (samePoint({ row: r, col: c }, g.layout.start)) {
+          ctx.fillStyle = COLORS.start;
+          ctx.fillRect(x + 3, y + 3, cs - 6, cs - 6);
+        }
+        if (samePoint({ row: r, col: c }, g.layout.goal)) {
+          const pulse = 0.55 + 0.45 * Math.sin(Date.now() / 280);
+          ctx.fillStyle = `rgba(233,69,96,${pulse * 0.7})`;
+          ctx.fillRect(x + 3, y + 3, cs - 6, cs - 6);
+          ctx.fillStyle = COLORS.exit;
+          ctx.font = `bold ${Math.floor(cs * 0.5)}px monospace`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("X", x + cs / 2, y + cs / 2 + 1);
+        }
+        drawItem(ctx, cs, x, y, g.items[`${r},${c}`]);
+      }
+    }
+  };
+
+  const drawItem = (ctx: CanvasRenderingContext2D, cs: number, x: number, y: number, item?: Item) => {
+    if (!item) return;
+    if (item.type === "APPLE") {
+      ctx.fillStyle = COLORS.apple;
+      ctx.beginPath();
+      ctx.arc(x + cs / 2, y + cs / 2, cs * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#81c784";
+      ctx.fillRect(x + cs / 2, y + cs / 2 - cs * 0.22, 4, 5);
+    } else if (item.type === "STAR") {
+      drawStar(ctx, x + cs / 2, y + cs / 2, cs * 0.26, COLORS.star);
+    } else if (item.type === "PORTAL") {
+      const a = 0.45 + 0.45 * Math.sin(Date.now() / 380);
+      ctx.strokeStyle = `rgba(74,240,255,${a})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(x + cs / 2, y + cs / 2, cs * 0.3, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(74,240,255,${a * 0.25})`;
+      ctx.fill();
+    }
+  };
+
+  const drawStar = (ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const angle = (i * Math.PI) / 5 - Math.PI / 2;
+      const dist = i % 2 === 0 ? r : r * 0.42;
+      const fn = i === 0 ? "moveTo" : "lineTo";
+      ctx[fn](cx + dist * Math.cos(angle), cy + dist * Math.sin(angle));
+    }
+    ctx.closePath();
+    ctx.fill();
+  };
+
+  const drawPlayer = (ctx: CanvasRenderingContext2D, g: Mutable) => {
+    const p = tilePx(g.playerPos);
+    const r = g.cellSize * 0.32;
+    if (g.starActive) {
+      ctx.strokeStyle = "rgba(255,215,0,0.45)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = g.starActive ? COLORS.playerStar : COLORS.player;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  const drawChaser = (ctx: CanvasRenderingContext2D, g: Mutable) => {
+    const r = g.cellSize * 0.3;
+    const { x, y } = g.chaserVisual;
+    ctx.fillStyle = COLORS.chaser;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    const er = r * 0.18;
+    ctx.fillStyle = "#000";
+    for (const sx of [-0.32, 0.32]) {
+      ctx.beginPath();
+      ctx.arc(x + r * sx, y - r * 0.22, er, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+
+  const drawBeatPulse = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, pulse: number) => {
+    if (pulse <= 0.02) return;
+    ctx.strokeStyle = `rgba(255,255,255,${pulse * 0.3})`;
+    ctx.lineWidth = 6;
+    ctx.strokeRect(3, 3, canvas.width - 6, canvas.height - 6);
+  };
+
+  const drawHUD = (ctx: CanvasRenderingContext2D, g: Mutable, canvas: HTMLCanvasElement, beatNumber: number) => {
+    const fs = Math.max(10, Math.floor(g.cellSize * 0.42));
+    ctx.textBaseline = "top";
+
+    if (g.state === GameState.PLAYING) {
+      ctx.fillStyle = "rgba(224,224,224,0.7)";
+      ctx.font = `${fs}px monospace`;
+      ctx.textAlign = "left";
+      ctx.fillText(`beat ${beatNumber}`, 6, 6);
+    }
+
+    ctx.fillStyle = COLORS.hud;
+    ctx.font = `bold ${fs}px monospace`;
+    ctx.textAlign = "right";
+    ctx.fillText(String(g.score), canvas.width - 6, 6);
+
+    if (g.state === GameState.PLAYING && !g.chaserActive && !g.chaserEliminated && beatNumber < CHASER_SPAWN) {
+      ctx.fillStyle = "rgba(233,69,96,0.9)";
+      ctx.font = `${fs}px monospace`;
+      ctx.textAlign = "center";
+      ctx.fillText(`chaser in ${CHASER_SPAWN - beatNumber} beats`, canvas.width / 2, 6);
+    }
+
+    let py = Math.floor(g.cellSize * 0.55);
+    ctx.textAlign = "left";
+    if (g.slowLeft > 0) {
+      ctx.fillStyle = COLORS.apple;
+      ctx.font = `${fs}px monospace`;
+      ctx.fillText(`slow  x${g.slowLeft}`, 6, py);
+      py += fs + 4;
+    }
+    if (g.starLeft > 0) {
+      ctx.fillStyle = COLORS.star;
+      ctx.font = `${fs}px monospace`;
+      ctx.fillText(`star  x${g.starLeft}`, 6, py);
+    }
+
+    ctx.fillStyle = "rgba(224,224,224,0.4)";
+    ctx.font = `${Math.floor(fs * 0.85)}px monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(`best: ${g.highScore}`, canvas.width / 2, canvas.height - 4);
+  };
+
+  const drawOverlay = (ctx: CanvasRenderingContext2D, g: Mutable, canvas: HTMLCanvasElement) => {
+    if (g.state === GameState.TITLE) drawTitle(ctx, g, canvas);
+    else if (g.state === GameState.COUNTDOWN) drawCountdown(ctx, g, canvas);
+    else if (g.state === GameState.WIN) drawEnd(ctx, g, canvas, "YOU ESCAPED!", COLORS.apple);
+    else if (g.state === GameState.LOSE) drawEnd(ctx, g, canvas, "CAUGHT!", COLORS.chaser);
+  };
+
+  const drawTitle = (ctx: CanvasRenderingContext2D, g: Mutable, canvas: HTMLCanvasElement) => {
+    ctx.fillStyle = COLORS.overlay;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const cs = g.cellSize;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#fff";
+    ctx.font = `bold ${Math.floor(cs * 1.4)}px monospace`;
+    ctx.fillText("ECHO", cx, cy - cs * 1.8);
+    ctx.fillStyle = "#aaa";
+    ctx.font = `${Math.floor(cs * 0.52)}px monospace`;
+    ctx.fillText("RHYTHM MAZE", cx, cy - cs * 0.7);
+    if (Math.sin(Date.now() / 480) > 0) {
+      ctx.fillStyle = COLORS.portal;
+      ctx.font = `${Math.floor(cs * 0.46)}px monospace`;
+      ctx.fillText("PRESS  ENTER  TO  START", cx, cy + cs * 0.6);
+    }
+    ctx.fillStyle = "#777";
+    ctx.font = `${Math.floor(cs * 0.34)}px monospace`;
+    ctx.fillText("WASD / ARROWS  ·  move on the beat", cx, cy + cs * 1.7);
+    ctx.font = `${Math.floor(cs * 0.32)}px monospace`;
+    ctx.fillStyle = COLORS.apple;
+    ctx.fillText("green = slow time", cx - cs * 2.0, cy + cs * 2.5);
+    ctx.fillStyle = COLORS.star;
+    ctx.fillText("gold = invincible", cx, cy + cs * 2.5);
+    ctx.fillStyle = COLORS.portal;
+    ctx.fillText("cyan = portal", cx + cs * 1.9, cy + cs * 2.5);
+  };
+
+  const drawCountdown = (ctx: CanvasRenderingContext2D, g: Mutable, canvas: HTMLCanvasElement) => {
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#fff";
+    ctx.font = `bold ${Math.floor(g.cellSize * 2.8)}px monospace`;
+    ctx.fillText(g.countdownVal > 0 ? String(g.countdownVal) : "GO!", canvas.width / 2, canvas.height / 2);
+  };
+
+  const drawEnd = (
+    ctx: CanvasRenderingContext2D,
+    g: Mutable,
+    canvas: HTMLCanvasElement,
+    msg: string,
+    color: string
+  ) => {
+    ctx.fillStyle = COLORS.overlay;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const cs = g.cellSize;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = color;
+    ctx.font = `bold ${Math.floor(cs * 0.95)}px monospace`;
+    ctx.fillText(msg, cx, cy - cs * 0.9);
+    ctx.fillStyle = "#fff";
+    ctx.font = `${Math.floor(cs * 0.68)}px monospace`;
+    ctx.fillText(`score: ${g.score}`, cx, cy + cs * 0.35);
+    if (g.score > 0 && g.score >= g.highScore) {
+      ctx.fillStyle = COLORS.star;
+      ctx.font = `${Math.floor(cs * 0.48)}px monospace`;
+      ctx.fillText("NEW HIGH SCORE!", cx, cy + cs * 1.15);
+    }
+    if (Math.sin(Date.now() / 500) > 0) {
+      ctx.fillStyle = "#aaa";
+      ctx.font = `${Math.floor(cs * 0.42)}px monospace`;
+      ctx.fillText("PRESS ENTER TO RESTART", cx, cy + cs * 1.95);
+    }
+  };
+
+  // ── mount ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    beatRef.current = new BeatEngine();
+    const seed = generateMaze(sizeRef.current);
+    gRef.current = {
+      state: GameState.TITLE,
+      layout: seed.layout,
+      items: JSON.parse(JSON.stringify(seed.items)) as ItemMap,
+      playerPos: { ...seed.layout.start },
+      score: 0,
+      highScore: loadHighScore(),
+      slowLeft: 0,
+      starLeft: 0,
+      starActive: false,
+      countdownVal: 3,
+      pendingInput: null,
+      chaserActive: false,
+      chaserEliminated: false,
+      chaserPos: { row: 0, col: 0 },
+      chaserVisual: { x: 0, y: 0 },
+      cellSize: 30,
+    };
+    layoutCanvas();
+
+    const onResize = () => layoutCanvas();
+    window.addEventListener("resize", onResize);
+
+    const onKey = (e: KeyboardEvent) => {
+      const g = gRef.current!;
+      if (e.key === "Enter") {
+        if (g.state === GameState.TITLE) enterCountdown();
+        else if (g.state === GameState.WIN || g.state === GameState.LOSE) {
+          beatRef.current!.stop();
+          g.state = GameState.TITLE;
+          setScreen(GameState.TITLE);
+          newMaze();
+        }
+        return;
+      }
+      if (g.state === GameState.PLAYING) {
+        const dir = KEY_MAP[e.key];
+        if (dir) {
+          e.preventDefault();
+          g.pendingInput = dir;
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+
+    rafRef.current = requestAnimationFrame(renderLoop);
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("keydown", onKey);
+      cancelAnimationFrame(rafRef.current);
+      if (countdownTimer.current) clearInterval(countdownTimer.current);
+      beatRef.current?.stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onSizeChange = (value: number) => {
+    setSize(value);
+    sizeRef.current = value;
+    if (gRef.current && gRef.current.state === GameState.TITLE) newMaze();
+  };
+
+  return (
+    <>
+      <canvas ref={canvasRef} aria-label="Echo Rhythm Maze game board" />
+      <div className="toolbar">
+        <label>
+          maze size
+          <select
+            value={size}
+            disabled={screen === GameState.PLAYING || screen === GameState.COUNTDOWN}
+            onChange={(e) => onSizeChange(Number(e.target.value))}
+          >
+            {SIZES.map((s) => (
+              <option key={s} value={s}>
+                {s}×{s}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="hint">Enter to play · WASD / arrows on the beat</span>
+      </div>
+    </>
+  );
+}

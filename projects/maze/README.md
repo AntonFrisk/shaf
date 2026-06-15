@@ -1,153 +1,64 @@
-# Echo Maze — game backend
+# Echo — Rhythm Maze (Next.js Edition)
 
-Go HTTP API and shared game logic for the **maze** project (Echo / Rhythm Maze). Implemented in [SOF-18](https://linear.app/softhouse-af/issue/SOF-18/create-backend-for-the-game); lives in the `shaf` monorepo under `projects/maze`.
+A rhythm-locked maze chase. Every move is quantized to the beat: press a
+direction off-beat and it buffers to the next beat. Reach the exit before the
+A\*-driven chaser hunts you down.
 
-## Prerequisites
+This is a Next.js / React rewrite of the original Go + canvas game in
+[`../mazego`](../mazego). All game logic — A\* pathfinding, BFS solvability,
+maze generation, and the Web Audio beat clock — runs **client-side in
+TypeScript**, so there is no backend and it deploys to Vercel with zero config.
 
-- [Go](https://go.dev/dl/) **1.22+** (`go version` should report 1.22 or newer)
-- Optional: `make` (Windows: use Git Bash, WSL, or run the `go` commands below directly)
+## Play
 
-## Run in development
+- **Enter** — start / restart
+- **WASD** or **Arrow keys** — move (only registers on the beat)
+- **maze size** dropdown — 15×15 / 21×21 / 31×31, a fresh random maze each game
 
-From the repo root:
+Power-ups:
 
-```bash
-make -C projects/maze run
-```
+- 🟢 **green (apple)** — slows the beat to 60% for 8 beats (more time to think)
+- ⭐ **gold (star)** — invincible for 8 beats; touch the chaser to destroy it
+- 🔵 **cyan (portal)** — paired teleports, preserves your rhythm step
 
-Or from this directory:
+The chaser spawns after 10 beats and uses A\* with anticipation: it projects
+your heading a couple of steps ahead to cut you off at intersections.
 
-```bash
-cd projects/maze
-go run ./cmd/server
-```
-
-The API listens on **`:8080`** by default. Override the port:
-
-```bash
-# Linux / macOS / Git Bash
-PORT=3000 go run ./cmd/server
-
-# PowerShell
-$env:PORT = "3000"; go run ./cmd/server
-```
-
-You should see:
-
-```text
-echo maze game API listening on :8080
-```
-
-CORS is enabled for browser clients (`Access-Control-Allow-Origin: *`).
-
-## Test
-
-### Automated tests
+## Develop
 
 ```bash
-make -C projects/maze test
-# or
-cd projects/maze && go test ./...
+npm install
+npm run dev      # http://localhost:3000
 ```
-
-Covers maze validation, share encode/decode, chaser pathfinding, and HTTP handlers.
-
-### Manual API checks
-
-With the server running, use these examples (adjust host/port if needed).
-
-**Health**
 
 ```bash
-curl -s http://localhost:8080/health
+npm run build    # production build (also what Vercel runs)
+npm start        # serve the production build
 ```
 
-Expected: `{"status":"ok","service":"echo-maze-game"}`
+Requires Node 18.18+ (developed on Node 22+).
 
-**Validate maze** — `POST /api/v1/game/maze/validate`
+## Deploy to Vercel
 
-Grid cells: `0` = walkable, `1` = wall. `start` and `goal` must be on walkable cells.
+This app lives in a monorepo subdirectory. When importing the repo into Vercel:
 
-```bash
-curl -s -X POST http://localhost:8080/api/v1/game/maze/validate \
-  -H "Content-Type: application/json" \
-  -d '{"grid":[[0,0],[0,0]],"start":{"row":0,"col":0},"goal":{"row":1,"col":1}}'
+1. **Root Directory** → set to `projects/maze`.
+2. Framework preset auto-detects **Next.js**; no env vars are required.
+
+Or from the CLI inside this folder: `npx vercel` (preview) / `npx vercel --prod`.
+
+## Structure
+
 ```
-
-Expected: `"solvable":true` (and optional `path`, `path_length`).
-
-**Share encode / decode** — `POST /api/v1/game/maze/share/encode` and `.../decode`
-
-```bash
-# Encode layout to a share payload string
-curl -s -X POST http://localhost:8080/api/v1/game/maze/share/encode \
-  -H "Content-Type: application/json" \
-  -d '{"grid":[[0,0],[0,0]],"start":{"row":0,"col":0},"goal":{"row":1,"col":1}}'
-
-# Decode (use payload from encode response)
-curl -s -X POST http://localhost:8080/api/v1/game/maze/share/decode \
-  -H "Content-Type: application/json" \
-  -d '{"payload":"<paste-payload-here>"}'
+app/                 Next.js App Router (layout, page, global styles)
+components/Game.tsx   'use client' — canvas render loop, input, state machine, HUD
+lib/
+  types.ts            shared types + tunable constants (BPM, colors, spawn beat)
+  grid.ts             walkability, stepping, teleport lookup
+  astar.ts            A* chaser pathfinding with anticipation
+  validate.ts         BFS start→goal solvability check
+  generate.ts         randomized maze generator + power-up placement
+  beat.ts             Web Audio lookahead beat scheduler
+  storage.ts          localStorage high score
+  share.ts            base64 layout codec (for future shareable maps)
 ```
-
-**Chaser step** — `POST /api/v1/game/chaser/step`
-
-Returns the chaser’s next tile for one beat (A* toward the player; optional `look_ahead` for anticipation).
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/game/chaser/step \
-  -H "Content-Type: application/json" \
-  -d '{
-    "layout": {"grid":[[0,0,0],[0,1,0],[0,0,0]],"start":{"row":0,"col":0},"goal":{"row":2,"col":2}},
-    "chaser": {"row":0,"col":2},
-    "player": {"row":2,"col":0},
-    "look_ahead": 2
-  }'
-```
-
-Expected: `"next"` with the next chaser cell, or `"blocked":true` if no move exists.
-
-### PowerShell alternative
-
-```powershell
-Invoke-RestMethod -Uri http://localhost:8080/health
-```
-
-Use `-Method Post -ContentType "application/json" -Body '{"grid":...}'` for POST endpoints.
-
-## API reference
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Liveness check |
-| `POST` | `/api/v1/game/maze/validate` | BFS solvability check (start → goal) |
-| `POST` | `/api/v1/game/maze/share/encode` | Layout → share payload string |
-| `POST` | `/api/v1/game/maze/share/decode` | Share payload → layout |
-| `POST` | `/api/v1/game/chaser/step` | One chaser movement step |
-
-All POST bodies are JSON. Errors return JSON with an `error` field and appropriate HTTP status.
-
-## Project layout
-
-```text
-projects/maze/
-├── api/           # HTTP handlers
-├── cmd/server/    # Dev server entrypoint
-├── maze/          # Layout, validation, share codec
-├── chaser/        # Chaser pathfinding (A*)
-├── wasm/          # WASM build (client-side core)
-├── Makefile
-└── go.mod
-```
-
-## Other commands
-
-```bash
-make -C projects/maze build   # binary → projects/maze/bin/maze-server
-make -C projects/maze wasm    # WASM → projects/maze/dist/
-```
-
-## Related
-
-- Monorepo overview: [`README.md`](../../README.md)
-- Frontend work: [SOF-19](https://linear.app/softhouse-af/issue/SOF-19/create-frontend-for-the-maze-game)
