@@ -5,7 +5,8 @@ import { nextStep } from "@/lib/astar";
 import { BeatEngine } from "@/lib/beat";
 import { generateMaze } from "@/lib/generate";
 import { isWalkable, key, samePoint, step } from "@/lib/grid";
-import { loadHighScore, saveHighScore } from "@/lib/storage";
+import { LANGUAGES, Language, t } from "@/lib/i18n";
+import { loadHighScore, loadLanguage, saveHighScore, saveLanguage } from "@/lib/storage";
 import {
   BPM_DEFAULT,
   CHASER_LOOK_AHEAD,
@@ -58,10 +59,13 @@ export default function Game() {
   const rafRef = useRef<number>(0);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const sizeRef = useRef(15);
+  const langRef = useRef<Language>("en");
 
   // React state only for low-frequency UI (toolbar enable/disable).
   const [screen, setScreen] = useState<GameState>(GameState.TITLE);
   const [size, setSize] = useState(15);
+  const [language, setLanguage] = useState<Language>("en");
+  const strings = t(language);
 
   // ── helpers bound to current mutable state ──────────────────────────────────
   const tilePx = (p: Point) => {
@@ -369,7 +373,7 @@ export default function Game() {
       ctx.fillStyle = "rgba(224,224,224,0.7)";
       ctx.font = `${fs}px monospace`;
       ctx.textAlign = "left";
-      ctx.fillText(`beat ${beatNumber}`, 6, 6);
+      ctx.fillText(t(langRef.current).beat(beatNumber), 6, 6);
     }
 
     ctx.fillStyle = COLORS.hud;
@@ -381,38 +385,45 @@ export default function Game() {
       ctx.fillStyle = "rgba(233,69,96,0.9)";
       ctx.font = `${fs}px monospace`;
       ctx.textAlign = "center";
-      ctx.fillText(`chaser in ${CHASER_SPAWN - beatNumber} beats`, canvas.width / 2, 6);
+      ctx.fillText(t(langRef.current).chaserInBeats(CHASER_SPAWN - beatNumber), canvas.width / 2, 6);
     }
 
     let py = Math.floor(g.cellSize * 0.55);
+    const tr = t(langRef.current);
     ctx.textAlign = "left";
     if (g.slowLeft > 0) {
       ctx.fillStyle = COLORS.apple;
       ctx.font = `${fs}px monospace`;
-      ctx.fillText(`slow  x${g.slowLeft}`, 6, py);
+      ctx.fillText(tr.slowPower(g.slowLeft), 6, py);
       py += fs + 4;
     }
     if (g.starLeft > 0) {
       ctx.fillStyle = COLORS.star;
       ctx.font = `${fs}px monospace`;
-      ctx.fillText(`star  x${g.starLeft}`, 6, py);
+      ctx.fillText(tr.starPower(g.starLeft), 6, py);
     }
 
     ctx.fillStyle = "rgba(224,224,224,0.4)";
     ctx.font = `${Math.floor(fs * 0.85)}px monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    ctx.fillText(`best: ${g.highScore}`, canvas.width / 2, canvas.height - 4);
+    ctx.fillText(tr.best(g.highScore), canvas.width / 2, canvas.height - 4);
   };
 
   const drawOverlay = (ctx: CanvasRenderingContext2D, g: Mutable, canvas: HTMLCanvasElement) => {
-    if (g.state === GameState.TITLE) drawTitle(ctx, g, canvas);
-    else if (g.state === GameState.COUNTDOWN) drawCountdown(ctx, g, canvas);
-    else if (g.state === GameState.WIN) drawEnd(ctx, g, canvas, "YOU ESCAPED!", COLORS.apple);
-    else if (g.state === GameState.LOSE) drawEnd(ctx, g, canvas, "CAUGHT!", COLORS.chaser);
+    const tr = t(langRef.current);
+    if (g.state === GameState.TITLE) drawTitle(ctx, g, canvas, tr);
+    else if (g.state === GameState.COUNTDOWN) drawCountdown(ctx, g, canvas, tr);
+    else if (g.state === GameState.WIN) drawEnd(ctx, g, canvas, tr.youEscaped, COLORS.apple, tr);
+    else if (g.state === GameState.LOSE) drawEnd(ctx, g, canvas, tr.caught, COLORS.chaser, tr);
   };
 
-  const drawTitle = (ctx: CanvasRenderingContext2D, g: Mutable, canvas: HTMLCanvasElement) => {
+  const drawTitle = (
+    ctx: CanvasRenderingContext2D,
+    g: Mutable,
+    canvas: HTMLCanvasElement,
+    tr: ReturnType<typeof t>
+  ) => {
     ctx.fillStyle = COLORS.overlay;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     const cx = canvas.width / 2;
@@ -425,32 +436,37 @@ export default function Game() {
     ctx.fillText("ECHO", cx, cy - cs * 1.8);
     ctx.fillStyle = "#aaa";
     ctx.font = `${Math.floor(cs * 0.52)}px monospace`;
-    ctx.fillText("RHYTHM MAZE", cx, cy - cs * 0.7);
+    ctx.fillText(tr.rhythmMaze, cx, cy - cs * 0.7);
     if (Math.sin(Date.now() / 480) > 0) {
       ctx.fillStyle = COLORS.portal;
       ctx.font = `${Math.floor(cs * 0.46)}px monospace`;
-      ctx.fillText("PRESS  ENTER  TO  START", cx, cy + cs * 0.6);
+      ctx.fillText(tr.pressEnterStart, cx, cy + cs * 0.6);
     }
     ctx.fillStyle = "#777";
     ctx.font = `${Math.floor(cs * 0.34)}px monospace`;
-    ctx.fillText("WASD / ARROWS  ·  move on the beat", cx, cy + cs * 1.7);
+    ctx.fillText(tr.moveOnBeat, cx, cy + cs * 1.7);
     ctx.font = `${Math.floor(cs * 0.32)}px monospace`;
     ctx.fillStyle = COLORS.apple;
-    ctx.fillText("green = slow time", cx - cs * 2.0, cy + cs * 2.5);
+    ctx.fillText(tr.greenSlowTime, cx - cs * 2.0, cy + cs * 2.5);
     ctx.fillStyle = COLORS.star;
-    ctx.fillText("gold = invincible", cx, cy + cs * 2.5);
+    ctx.fillText(tr.goldInvincible, cx, cy + cs * 2.5);
     ctx.fillStyle = COLORS.portal;
-    ctx.fillText("cyan = portal", cx + cs * 1.9, cy + cs * 2.5);
+    ctx.fillText(tr.cyanPortal, cx + cs * 1.9, cy + cs * 2.5);
   };
 
-  const drawCountdown = (ctx: CanvasRenderingContext2D, g: Mutable, canvas: HTMLCanvasElement) => {
+  const drawCountdown = (
+    ctx: CanvasRenderingContext2D,
+    g: Mutable,
+    canvas: HTMLCanvasElement,
+    tr: ReturnType<typeof t>
+  ) => {
     ctx.fillStyle = "rgba(0,0,0,0.55)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff";
     ctx.font = `bold ${Math.floor(g.cellSize * 2.8)}px monospace`;
-    ctx.fillText(g.countdownVal > 0 ? String(g.countdownVal) : "GO!", canvas.width / 2, canvas.height / 2);
+    ctx.fillText(g.countdownVal > 0 ? String(g.countdownVal) : tr.go, canvas.width / 2, canvas.height / 2);
   };
 
   const drawEnd = (
@@ -458,7 +474,8 @@ export default function Game() {
     g: Mutable,
     canvas: HTMLCanvasElement,
     msg: string,
-    color: string
+    color: string,
+    tr: ReturnType<typeof t>
   ) => {
     ctx.fillStyle = COLORS.overlay;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -472,22 +489,25 @@ export default function Game() {
     ctx.fillText(msg, cx, cy - cs * 0.9);
     ctx.fillStyle = "#fff";
     ctx.font = `${Math.floor(cs * 0.68)}px monospace`;
-    ctx.fillText(`score: ${g.score}`, cx, cy + cs * 0.35);
+    ctx.fillText(tr.score(g.score), cx, cy + cs * 0.35);
     if (g.score > 0 && g.score >= g.highScore) {
       ctx.fillStyle = COLORS.star;
       ctx.font = `${Math.floor(cs * 0.48)}px monospace`;
-      ctx.fillText("NEW HIGH SCORE!", cx, cy + cs * 1.15);
+      ctx.fillText(tr.newHighScore, cx, cy + cs * 1.15);
     }
     if (Math.sin(Date.now() / 500) > 0) {
       ctx.fillStyle = "#aaa";
       ctx.font = `${Math.floor(cs * 0.42)}px monospace`;
-      ctx.fillText("PRESS ENTER TO RESTART", cx, cy + cs * 1.95);
+      ctx.fillText(tr.pressEnterRestart, cx, cy + cs * 1.95);
     }
   };
 
   // ── mount ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     beatRef.current = new BeatEngine();
+    const initialLang = loadLanguage();
+    langRef.current = initialLang;
+    setLanguage(initialLang);
     const seed = generateMaze(sizeRef.current);
     gRef.current = {
       state: GameState.TITLE,
@@ -551,17 +571,30 @@ export default function Game() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    document.documentElement.lang = language;
+    document.title = strings.metaTitle;
+    const meta = document.querySelector('meta[name="description"]');
+    if (meta) meta.setAttribute("content", strings.metaDescription);
+  }, [language, strings.metaTitle, strings.metaDescription]);
+
   const onSizeChange = (value: number) => {
     setSize(value);
     sizeRef.current = value;
     if (gRef.current && gRef.current.state === GameState.TITLE) newMaze();
   };
 
+  const onLanguageChange = (value: Language) => {
+    langRef.current = value;
+    setLanguage(value);
+    saveLanguage(value);
+  };
+
   return (
     <div className="game-shell">
       <div className="toolbar">
         <label>
-          maze size
+          {strings.mazeSize}
           <select
             value={size}
             disabled={screen === GameState.PLAYING || screen === GameState.COUNTDOWN}
@@ -574,10 +607,20 @@ export default function Game() {
             ))}
           </select>
         </label>
-        <span className="hint">Enter to play · WASD / arrows on the beat</span>
+        <label>
+          {strings.language}
+          <select value={language} onChange={(e) => onLanguageChange(e.target.value as Language)}>
+            {LANGUAGES.map(({ code, label }) => (
+              <option key={code} value={code}>
+                {label[language]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="hint">{strings.toolbarHint}</span>
       </div>
       <div className="board-area" ref={boardAreaRef}>
-        <canvas ref={canvasRef} aria-label="Echo Rhythm Maze game board" />
+        <canvas ref={canvasRef} aria-label={strings.boardAria} />
       </div>
     </div>
   );
