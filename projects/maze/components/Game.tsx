@@ -52,6 +52,7 @@ interface Mutable {
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const boardAreaRef = useRef<HTMLDivElement>(null);
   const beatRef = useRef<BeatEngine | null>(null);
   const gRef = useRef<Mutable | null>(null);
   const rafRef = useRef<number>(0);
@@ -71,9 +72,11 @@ export default function Game() {
   const layoutCanvas = () => {
     const g = gRef.current!;
     const canvas = canvasRef.current!;
+    const area = boardAreaRef.current;
     const n = g.layout.width;
-    const avail = Math.min(window.innerWidth, window.innerHeight - 120) * 0.92;
-    g.cellSize = Math.max(12, Math.floor(Math.min(avail, 660) / n));
+    const availW = area?.clientWidth ?? window.innerWidth;
+    const availH = area?.clientHeight ?? window.innerHeight;
+    g.cellSize = Math.max(12, Math.floor(Math.min(availW, availH) / n));
     canvas.width = g.cellSize * n;
     canvas.height = g.cellSize * n;
   };
@@ -199,7 +202,7 @@ export default function Game() {
     const g = gRef.current!;
     beatRef.current!.init();
     resetState();
-    g.countdownVal = 3;
+    g.countdownVal = 3;   // count down timer
     transition(GameState.COUNTDOWN);
     let n = 3;
     countdownTimer.current = setInterval(() => {
@@ -257,7 +260,7 @@ export default function Game() {
         const x = c * cs;
         const y = r * cs;
         const wall = g.layout.grid[r][c] === 1;
-        ctx.fillStyle = wall ? COLORS.wall : COLORS.floor;
+        ctx.fillStyle = wall ? COLORS.wallEdge : COLORS.floor;
         ctx.fillRect(x, y, cs, cs);
         if (wall) {
           ctx.fillStyle = COLORS.wallEdge;
@@ -509,6 +512,10 @@ export default function Game() {
     const onResize = () => layoutCanvas();
     window.addEventListener("resize", onResize);
 
+    const area = boardAreaRef.current;
+    const ro = area ? new ResizeObserver(onResize) : null;
+    ro?.observe(area!);
+
     const onKey = (e: KeyboardEvent) => {
       const g = gRef.current!;
       if (e.key === "Enter") {
@@ -535,6 +542,7 @@ export default function Game() {
 
     return () => {
       window.removeEventListener("resize", onResize);
+      ro?.disconnect();
       window.removeEventListener("keydown", onKey);
       cancelAnimationFrame(rafRef.current);
       if (countdownTimer.current) clearInterval(countdownTimer.current);
@@ -550,8 +558,7 @@ export default function Game() {
   };
 
   return (
-    <>
-      <canvas ref={canvasRef} aria-label="Echo Rhythm Maze game board" />
+    <div className="game-shell">
       <div className="toolbar">
         <label>
           maze size
@@ -569,6 +576,9 @@ export default function Game() {
         </label>
         <span className="hint">Enter to play · WASD / arrows on the beat</span>
       </div>
-    </>
+      <div className="board-area" ref={boardAreaRef}>
+        <canvas ref={canvasRef} aria-label="Echo Rhythm Maze game board" />
+      </div>
+    </div>
   );
 }
