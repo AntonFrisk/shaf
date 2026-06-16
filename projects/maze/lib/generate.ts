@@ -70,8 +70,10 @@ export function generateMaze(size = 15): GeneratedMaze {
   // Scale power-ups with maze size.
   const appleCount = Math.max(2, Math.floor(n / 5));
   const starCount = Math.max(1, Math.floor(n / 12));
+  const snowflakeCount = Math.max(1, Math.floor(n / 15));
   for (let k = 0; k < appleCount && i < floors.length; k++) items[key(take())] = { type: "APPLE" };
   for (let k = 0; k < starCount && i < floors.length; k++) items[key(take())] = { type: "STAR" };
+  for (let k = 0; k < snowflakeCount && i < floors.length; k++) items[key(take())] = { type: "SNOWFLAKE" };
 
   // Belt-and-braces: carved mazes are always solvable, but assert it.
   if (!isSolvable(layout)) return generateMaze(size);

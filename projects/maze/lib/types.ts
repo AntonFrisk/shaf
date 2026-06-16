@@ -22,7 +22,7 @@ export interface Layout {
   height: number;
 }
 
-export type ItemType = "APPLE" | "STAR" | "PORTAL";
+export type ItemType = "APPLE" | "STAR" | "SNOWFLAKE" | "PORTAL";
 
 export interface Item {
   type: ItemType;
@@ -49,6 +49,7 @@ export const BPM_DEFAULT = 120;
 export const SLOWMO_FACTOR = 0.6; // apple slows BPM to 60%
 export const SLOWMO_BEATS = 8;
 export const STAR_BEATS = 8;
+export const SNOWFLAKE_BEATS = 2;
 export const CHASER_SPAWN = 10; // beat number the chaser spawns on
 export const CHASER_LOOK_AHEAD = 2; // anticipation depth for "evil" AI
 export const SCHED_AHEAD = 0.1; // seconds the audio scheduler looks ahead
@@ -86,6 +87,7 @@ export const COLORS = {
   exit: "#e94560",
   apple: "#4caf50",
   star: "#ffd700",
+  snowflake: "#a8e6ff",
   portal: "#4af0ff",
   player: "#ffffff",
   playerStar: "#ffd700",

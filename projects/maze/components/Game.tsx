@@ -22,6 +22,7 @@ import {
   SPEED_OPTIONS,
   SPEED_TOOLTIPS,
   STAR_BEATS,
+  SNOWFLAKE_BEATS,
   SpeedMultiplier,
 } from "@/lib/types";
 
@@ -44,6 +45,7 @@ interface Mutable {
   slowLeft: number;
   starLeft: number;
   starActive: boolean;
+  freezeLeft: number;
   countdownVal: number;
   pendingInput: Direction | null;
   chaserActive: boolean;
@@ -101,6 +103,7 @@ export default function Game() {
     g.slowLeft = 0;
     g.starLeft = 0;
     g.starActive = false;
+    g.freezeLeft = 0;
     g.pendingInput = null;
     g.chaserActive = false;
     g.chaserEliminated = false;
@@ -156,6 +159,10 @@ export default function Game() {
       g.starActive = true;
       g.score += 200;
       delete g.items[k];
+    } else if (item.type === "SNOWFLAKE") {
+      g.freezeLeft = SNOWFLAKE_BEATS;
+      g.score += 150;
+      delete g.items[k];
     }
   };
 
@@ -177,8 +184,12 @@ export default function Game() {
       g.chaserPos = { ...g.layout.start };
       g.chaserVisual = tilePx(g.chaserPos);
     } else if (g.chaserActive) {
-      const res = nextStep(g.layout, g.chaserPos, g.playerPos, CHASER_LOOK_AHEAD);
-      if (res.next) g.chaserPos = res.next;
+      if (g.freezeLeft > 0) {
+        g.freezeLeft--;
+      } else {
+        const res = nextStep(g.layout, g.chaserPos, g.playerPos, CHASER_LOOK_AHEAD);
+        if (res.next) g.chaserPos = res.next;
+      }
       if (collision()) return;
     }
 
@@ -240,8 +251,9 @@ export default function Game() {
 
     if (g.chaserActive) {
       const t = tilePx(g.chaserPos);
-      g.chaserVisual.x += (t.x - g.chaserVisual.x) * 0.18;
-      g.chaserVisual.y += (t.y - g.chaserVisual.y) * 0.18;
+      const lerp = g.freezeLeft > 0 ? 0.06 : 0.18;
+      g.chaserVisual.x += (t.x - g.chaserVisual.x) * lerp;
+      g.chaserVisual.y += (t.y - g.chaserVisual.y) * lerp;
     }
     beat.pulse = Math.max(0, beat.pulse - 0.04);
 
@@ -305,6 +317,8 @@ export default function Game() {
       ctx.fillRect(x + cs / 2, y + cs / 2 - cs * 0.22, 4, 5);
     } else if (item.type === "STAR") {
       drawStar(ctx, x + cs / 2, y + cs / 2, cs * 0.26, COLORS.star);
+    } else if (item.type === "SNOWFLAKE") {
+      drawSnowflake(ctx, x + cs / 2, y + cs / 2, cs * 0.28, COLORS.snowflake);
     } else if (item.type === "PORTAL") {
       const a = 0.45 + 0.45 * Math.sin(Date.now() / 380);
       ctx.strokeStyle = `rgba(74,240,255,${a})`;
@@ -330,6 +344,33 @@ export default function Game() {
     ctx.fill();
   };
 
+  const drawSnowflake = (ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1.5, r * 0.14);
+    ctx.lineCap = "round";
+    for (let i = 0; i < 6; i++) {
+      const angle = (i * Math.PI) / 3;
+      const dx = r * Math.cos(angle);
+      const dy = r * Math.sin(angle);
+      ctx.beginPath();
+      ctx.moveTo(cx - dx, cy - dy);
+      ctx.lineTo(cx + dx, cy + dy);
+      ctx.stroke();
+      const bx = cx + dx * 0.55;
+      const by = cy + dy * 0.55;
+      const wing = r * 0.28;
+      const wingAngle = angle + Math.PI / 2;
+      ctx.beginPath();
+      ctx.moveTo(bx - wing * Math.cos(wingAngle), by - wing * Math.sin(wingAngle));
+      ctx.lineTo(bx + wing * Math.cos(wingAngle), by + wing * Math.sin(wingAngle));
+      ctx.stroke();
+    }
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
   const drawPlayer = (ctx: CanvasRenderingContext2D, g: Mutable) => {
     const p = tilePx(g.playerPos);
     const r = g.cellSize * 0.32;
@@ -349,12 +390,31 @@ export default function Game() {
   const drawChaser = (ctx: CanvasRenderingContext2D, g: Mutable) => {
     const r = g.cellSize * 0.3;
     const { x, y } = g.chaserVisual;
-    ctx.fillStyle = COLORS.chaser;
+    const frozen = g.freezeLeft > 0;
+    if (frozen) {
+      ctx.strokeStyle = "rgba(168,230,255,0.55)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, r + 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = frozen ? COLORS.snowflake : COLORS.chaser;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
+    if (frozen) {
+      ctx.strokeStyle = "rgba(255,255,255,0.7)";
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 4; i++) {
+        const angle = (i * Math.PI) / 2 + Date.now() / 1200;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + r * 0.85 * Math.cos(angle), y + r * 0.85 * Math.sin(angle));
+        ctx.stroke();
+      }
+    }
     const er = r * 0.18;
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = frozen ? "#1a3a4a" : "#000";
     for (const sx of [-0.32, 0.32]) {
       ctx.beginPath();
       ctx.arc(x + r * sx, y - r * 0.22, er, 0, Math.PI * 2);
@@ -404,6 +464,12 @@ export default function Game() {
       ctx.fillStyle = COLORS.star;
       ctx.font = `${fs}px monospace`;
       ctx.fillText(`star  x${g.starLeft}`, 6, py);
+      py += fs + 4;
+    }
+    if (g.freezeLeft > 0) {
+      ctx.fillStyle = COLORS.snowflake;
+      ctx.font = `${fs}px monospace`;
+      ctx.fillText(`freeze  x${g.freezeLeft}`, 6, py);
     }
 
     ctx.fillStyle = "rgba(224,224,224,0.4)";
@@ -449,8 +515,10 @@ export default function Game() {
     ctx.fillText("green = slow time", cx, legendY);
     ctx.fillStyle = COLORS.star;
     ctx.fillText("gold = invincible", cx, legendY + legendGap);
+    ctx.fillStyle = COLORS.snowflake;
+    ctx.fillText("ice = freeze chaser", cx, legendY + legendGap * 2);
     ctx.fillStyle = COLORS.portal;
-    ctx.fillText("cyan = portal", cx, legendY + legendGap * 2);
+    ctx.fillText("cyan = portal", cx, legendY + legendGap * 3);
   };
 
   const drawCountdown = (ctx: CanvasRenderingContext2D, g: Mutable, canvas: HTMLCanvasElement) => {
@@ -510,6 +578,7 @@ export default function Game() {
       slowLeft: 0,
       starLeft: 0,
       starActive: false,
+      freezeLeft: 0,
       countdownVal: 3,
       pendingInput: null,
       chaserActive: false,
