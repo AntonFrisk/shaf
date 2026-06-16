@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { COLORS } from "@/lib/types";
+import { COLORS, SPEED_EMOJIS, SPEED_OPTIONS } from "@/lib/types";
 
 interface GuideProps {
   onPlay: () => void;
@@ -21,10 +21,22 @@ const ITEMS = [
     glyph: "star",
   },
   {
+    color: COLORS.snowflake,
+    label: "Snowflake",
+    desc: "Freezes the chaser for 2 beats while you slip away.",
+    glyph: "snowflake",
+  },
+  {
     color: COLORS.portal,
     label: "Portal",
     desc: "Paired cyan rings. Step in to teleport across the maze on the same beat.",
     glyph: "portal",
+  },
+  {
+    color: COLORS.coin,
+    label: "Coin",
+    desc: "Orange coins sit off the shortest route. Collect them for score and persistent currency.",
+    glyph: "coin",
   },
   {
     color: COLORS.exit,
@@ -56,7 +68,9 @@ export default function Guide({ onPlay }: GuideProps) {
         <button type="button" className="guide-cta" onClick={onPlay}>
           Play now
         </button>
-        <p className="guide-cta-hint">Press Enter to continue · pick maze size on the next screen</p>
+        <p className="guide-cta-hint">
+          Press Enter to continue · maze size, speed &amp; upgrades on the next screen
+        </p>
       </header>
 
       <section className="guide-section" aria-labelledby="how-to-play">
@@ -108,6 +122,21 @@ export default function Guide({ onPlay }: GuideProps) {
               Press <strong>Esc</strong> to cancel back to the guide.
             </p>
           </article>
+
+          <article className="guide-card">
+            <div className="guide-visual guide-visual-speed" aria-hidden>
+              {SPEED_OPTIONS.map((s) => (
+                <span key={s} className="guide-speed-emoji">
+                  {SPEED_EMOJIS[s]}
+                </span>
+              ))}
+            </div>
+            <h3>Settings screen</h3>
+            <p>
+              Choose maze size, set speed from 1× to 5×, and spend coins on
+              upgrades before you press Enter to start a run.
+            </p>
+          </article>
         </div>
       </section>
 
@@ -128,6 +157,26 @@ export default function Guide({ onPlay }: GuideProps) {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="guide-section" aria-labelledby="upgrades">
+        <h2 id="upgrades">Coins &amp; upgrades</h2>
+        <div className="guide-cards">
+          <article className="guide-card">
+            <h3>Earn coins</h3>
+            <p>
+              Coins spawn on detour tiles away from the shortest path. Grab them
+              during a run to boost your score and fill your persistent coin bank.
+            </p>
+          </article>
+          <article className="guide-card">
+            <h3>Upgrade shop</h3>
+            <p>
+              Spend coins in the sidebar to unlock chaser delay, longer power-ups,
+              bigger coin bonuses, and extra survival score between runs.
+            </p>
+          </article>
+        </div>
       </section>
     </div>
   );

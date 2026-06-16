@@ -135,6 +135,12 @@ function rebuild(cameFrom: Map<number, Point>, key: (p: Point) => number, start:
   return path;
 }
 
+/** Shortest walkable path from start to goal (teleports honored). */
+export function shortestPath(layout: Layout, start: Point, goal: Point): Point[] {
+  const { path, ok } = astar(layout, start, goal);
+  return ok ? path : [];
+}
+
 /** Next tile for the chaser this beat, with optional anticipation. Ported from NextStep. */
 export function nextStep(layout: Layout, chaser: Point, player: Point, lookAhead = 0): StepResult {
   const target = lookAhead > 0 ? anticipate(layout, player, chaser, lookAhead) : player;
