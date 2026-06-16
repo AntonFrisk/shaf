@@ -10,6 +10,7 @@ import { UPGRADES, upgradeCost } from "@/lib/upgrades";
 import type { UpgradeLevels } from "@/lib/upgrades";
 import {
   CHASER_LOOK_AHEAD,
+  CHASER_RESPAWN_MS,
   CHASER_SPAWN,
   COLORS,
   COIN_SCORE,
@@ -68,22 +69,31 @@ interface Mutable {
   countdownVal: number;
   pendingInput: Direction | null;
   chaserActive: boolean;
-  chaserEliminated: boolean;
+  chaserHasSpawned: boolean;
   chaserPos: Point;
   chaserVisual: { x: number; y: number };
   cellSize: number;
 }
 
-export default function Game() {
+interface GameProps {
+  onBack?: () => void;
+}
+
+export default function Game({ onBack }: GameProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boardAreaRef = useRef<HTMLDivElement>(null);
   const beatRef = useRef<BeatEngine | null>(null);
   const gRef = useRef<Mutable | null>(null);
   const rafRef = useRef<number>(0);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const playTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chaserRespawnRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onBackRef = useRef(onBack);
   const sizeRef = useRef(15);
   const seedRef = useRef<number | undefined>(undefined);
   const speedRef = useRef<SpeedMultiplier>(1);
+
+  onBackRef.current = onBack;
 
   // React state only for low-frequency UI (toolbar enable/disable).
   const [screen, setScreen] = useState<GameState>(GameState.TITLE);
@@ -98,12 +108,37 @@ export default function Game() {
   const coinScore = () => COIN_SCORE + gRef.current!.upgrades.coinBonus * 25;
   const survivalScore = () => 10 + gRef.current!.upgrades.survivalBoost * 5;
 
-  const hasActiveEffect = (g: Mutable) =>
+  const hasBlockingEffect = (g: Mutable) =>
     g.slowLeft > 0 || g.starLeft > 0 || g.freezeLeft > 0;
+
+  const clearChaserRespawn = () => {
+    if (chaserRespawnRef.current) {
+      clearTimeout(chaserRespawnRef.current);
+      chaserRespawnRef.current = null;
+    }
+  };
+
+  const spawnChaser = () => {
+    const g = gRef.current!;
+    g.chaserActive = true;
+    g.chaserHasSpawned = true;
+    g.chaserPos = { ...g.layout.start };
+    g.chaserVisual = tilePx(g.chaserPos);
+  };
+
+  const scheduleChaserRespawn = () => {
+    clearChaserRespawn();
+    chaserRespawnRef.current = setTimeout(() => {
+      chaserRespawnRef.current = null;
+      const g = gRef.current!;
+      if (g.state !== GameState.PLAYING) return;
+      spawnChaser();
+    }, CHASER_RESPAWN_MS);
+  };
 
   const activateApple = () => {
     const g = gRef.current!;
-    if (g.appleInv <= 0 || hasActiveEffect(g)) return;
+    if (g.appleInv <= 0 || hasBlockingEffect(g)) return;
     g.appleInv--;
     g.slowLeft = slowmoBeats();
     beatRef.current!.setBPM(beatRef.current!.getBaseBpm() * SLOWMO_FACTOR);
@@ -148,8 +183,9 @@ export default function Game() {
     g.slowmoTrail = [];
     g.pendingInput = null;
     g.chaserActive = false;
-    g.chaserEliminated = false;
+    g.chaserHasSpawned = false;
     g.chaserPos = { row: 0, col: 0 };
+    clearChaserRespawn();
     beatRef.current!.resetBPM();
     newMaze();
     g.playerVisual = tilePx(g.playerPos);
@@ -174,8 +210,8 @@ export default function Game() {
     if (!g.chaserActive || !samePoint(g.chaserPos, g.playerPos)) return false;
     if (g.starActive) {
       g.chaserActive = false;
-      g.chaserEliminated = true;
       g.score += 500;
+      scheduleChaserRespawn();
       return false;
     }
     transition(GameState.LOSE);
@@ -199,13 +235,11 @@ export default function Game() {
       g.score += 100;
       delete g.items[k];
     } else if (item.type === "STAR") {
-      if (hasActiveEffect(g)) return;
       g.starLeft = starBeats();
       g.starActive = true;
       g.score += 200;
       delete g.items[k];
     } else if (item.type === "SNOWFLAKE") {
-      if (hasActiveEffect(g)) return;
       g.freezeLeft = SNOWFLAKE_BEATS;
       g.score += 150;
       delete g.items[k];
@@ -231,10 +265,8 @@ export default function Game() {
 
     g.score += survivalScore(); // survival points
 
-    if (!g.chaserActive && !g.chaserEliminated && beatNum >= chaserSpawnBeat()) {
-      g.chaserActive = true;
-      g.chaserPos = { ...g.layout.start };
-      g.chaserVisual = tilePx(g.chaserPos);
+    if (!g.chaserHasSpawned && beatNum >= chaserSpawnBeat()) {
+      spawnChaser();
     } else if (g.chaserActive) {
       if (g.freezeLeft > 0) {
         g.freezeLeft--;
@@ -281,7 +313,7 @@ export default function Game() {
       g.countdownVal = n;
       if (n <= 0) {
         if (countdownTimer.current) clearInterval(countdownTimer.current);
-        setTimeout(() => {
+        playTimeoutRef.current = setTimeout(() => {
           g.state = GameState.PLAYING;
           setScreen(GameState.PLAYING);
           beatRef.current!.onBeat = onBeat;
@@ -289,6 +321,23 @@ export default function Game() {
         }, timeout1);
       }
     }, timeout2);
+  };
+
+  const cancelGame = () => {
+    beatRef.current?.stop();
+    if (countdownTimer.current) {
+      clearInterval(countdownTimer.current);
+      countdownTimer.current = null;
+    }
+    if (playTimeoutRef.current) {
+      clearTimeout(playTimeoutRef.current);
+      playTimeoutRef.current = null;
+    }
+    clearChaserRespawn();
+    const g = gRef.current!;
+    g.state = GameState.TITLE;
+    setScreen(GameState.TITLE);
+    resetState();
   };
 
   // ── render loop ─────────────────────────────────────────────────────────────
@@ -550,7 +599,7 @@ export default function Game() {
     ctx.textAlign = "right";
     ctx.fillText(String(g.score), canvas.width - 6, 6);
 
-    if (g.state === GameState.PLAYING && !g.chaserActive && !g.chaserEliminated && beatNumber < chaserSpawnBeat()) {
+    if (g.state === GameState.PLAYING && !g.chaserHasSpawned && beatNumber < chaserSpawnBeat()) {
       ctx.fillStyle = "rgba(233,69,96,0.9)";
       ctx.font = `${fs}px monospace`;
       ctx.textAlign = "center";
@@ -562,7 +611,7 @@ export default function Game() {
     if (g.appleInv > 0) {
       ctx.fillStyle = COLORS.apple;
       ctx.font = `${fs}px monospace`;
-      const hint = hasActiveEffect(g) ? "" : "  [Space]";
+      const hint = hasBlockingEffect(g) ? "" : "  [Space]";
       ctx.fillText(`apple x${g.appleInv}${hint}`, 6, py);
       py += fs + 4;
     }
@@ -698,7 +747,7 @@ export default function Game() {
 
     beatRef.current = new BeatEngine();
     beatRef.current.setSpeedMultiplier(speedRef.current);
-    const seed = generateMaze(sizeRef.current);
+    const seed = generateMaze(sizeRef.current, seedRef.current);
     gRef.current = {
       state: GameState.TITLE,
       layout: seed.layout,
@@ -719,7 +768,7 @@ export default function Game() {
       countdownVal: 3,
       pendingInput: null,
       chaserActive: false,
-      chaserEliminated: false,
+      chaserHasSpawned: false,
       chaserPos: { row: 0, col: 0 },
       chaserVisual: { x: 0, y: 0 },
       cellSize: 30,
@@ -738,6 +787,11 @@ export default function Game() {
 
     const onKey = (e: KeyboardEvent) => {
       const g = gRef.current!;
+      if (e.key === "Escape") {
+        if (g.state === GameState.TITLE) onBackRef.current?.();
+        else cancelGame();
+        return;
+      }
       if (e.key === "Enter") {
         if (g.state === GameState.TITLE) enterCountdown();
         else if (g.state === GameState.WIN || g.state === GameState.LOSE) {
@@ -771,6 +825,8 @@ export default function Game() {
       window.removeEventListener("keydown", onKey);
       cancelAnimationFrame(rafRef.current);
       if (countdownTimer.current) clearInterval(countdownTimer.current);
+      if (playTimeoutRef.current) clearTimeout(playTimeoutRef.current);
+      clearChaserRespawn();
       beatRef.current?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -849,6 +905,11 @@ export default function Game() {
             </div>
           </div>
         </label>
+        {onBack && (
+          <button type="button" className="back-btn" onClick={onBack} disabled={toolbarDisabled}>
+            ← guide
+          </button>
+        )}
         <div className="shop">
           <h2>Upgrades</h2>
           {UPGRADES.map((def) => {
@@ -873,7 +934,7 @@ export default function Game() {
             );
           })}
         </div>
-        <span className="hint">Enter to play · WASD on the beat · Space for apple · coins off-route</span>
+        <span className="hint">Enter to play · Esc to guide · WASD on beat · Space for apple · coins off-route</span>
       </div>
       <div className="board-area" ref={boardAreaRef}>
         <canvas ref={canvasRef} aria-label="Echo Rhythm Maze game board" />

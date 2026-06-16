@@ -54,6 +54,7 @@ export const TRAIL_FADE = 0.035;
 export const STAR_BEATS = 8;
 export const SNOWFLAKE_BEATS = 2;
 export const CHASER_SPAWN = 10; // beat number the chaser spawns on
+export const CHASER_RESPAWN_MS = 2000; // real-time delay after star kill
 export const CHASER_LOOK_AHEAD = 2; // anticipation depth for "evil" AI
 export const COIN_SCORE = 50; // points per coin collected
 export const COIN_VALUE = 1; // persistent currency earned per coin

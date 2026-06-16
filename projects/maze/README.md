@@ -11,20 +11,27 @@ TypeScript**, so there is no backend and it deploys to Vercel with zero config.
 
 ## How to Play
 
-- **Enter** — start / restart
+The main page opens with a **how-to-play guide**. Click **Play now** or press
+**Enter** to reach the settings screen, then press **Enter** again to start a
+run. Press **Esc** to cancel back to the guide.
+
+- **Enter** — continue from guide / start or restart a run on the settings screen
+- **Esc** — cancel back to the guide (or abort an active run to settings)
 - **WASD** or **Arrow keys** — move (only registers on the beat)
 - **Space** — activate a stored green apple (slow-mo)
 - **maze size** dropdown — 15×15 / 21×21 / 31×31, a fresh random maze each game
+- **speed** slider — 1× to 5× beat tempo (🐢 → 🚀)
+- **upgrade shop** — spend persistent coins on run bonuses between games
 
 Power-ups:
 
-- 🟢 **green (apple)** — collect up to 3, then press **Space** to slow the beat to 60% for 8 beats
-- ⭐ **gold (star)** — invincible for 8 beats; touch the chaser to destroy it
-- ❄️ **ice (snowflake)** — freeze the chaser for 2 beats
+- 🟢 **green (apple)** — collect up to 3, then press **Space** to slow the beat to 60% for 8 beats (trailing circles while active)
+- ⭐ **gold (star)** — instant invincibility for 8 beats; touch the chaser to destroy it (+500 pts); chaser respawns from start after 2 seconds
+- ❄️ **ice (snowflake)** — instantly freezes the chaser for 2 beats
 - 🔵 **cyan (portal)** — paired teleports, preserves your rhythm step
-- 🟠 **orange (coin)** — off-route currency for upgrades
+- 🟠 **orange (coin)** — off the shortest route; adds score and persistent coins
 
-Only one power-up effect can be active at a time.
+Star and snowflake apply immediately on pickup. Apple slow-mo is on-demand via Space and cannot activate while another effect is running.
 
 The chaser spawns after 10 beats and uses A\* with anticipation: it projects
 your heading a couple of steps ahead to cut you off at intersections.
@@ -56,7 +63,9 @@ Or from the CLI inside this folder: `npx vercel` (preview) / `npx vercel --prod`
 
 ```
 app/                 Next.js App Router (layout, page, global styles)
-components/Game.tsx   'use client' — canvas render loop, input, state machine, HUD
+components/
+  Guide.tsx           landing-page how-to-play guide with Play now CTA
+  Game.tsx            'use client' — canvas render loop, input, state machine, HUD
 lib/
   types.ts            shared types + tunable constants (BPM, colors, spawn beat)
   grid.ts             walkability, stepping, teleport lookup
@@ -64,6 +73,7 @@ lib/
   validate.ts         BFS start→goal solvability check
   generate.ts         randomized maze generator + power-up placement
   beat.ts             Web Audio lookahead beat scheduler
-  storage.ts          localStorage high score
+  storage.ts          localStorage high score, coins, and upgrades
+  upgrades.ts         upgrade definitions and costs
   share.ts            base64 layout codec (for future shareable maps)
 ```
