@@ -7,7 +7,6 @@ import { generateMaze } from "@/lib/generate";
 import { isWalkable, key, samePoint, step } from "@/lib/grid";
 import { loadHighScore, saveHighScore } from "@/lib/storage";
 import {
-  BPM_DEFAULT,
   CHASER_LOOK_AHEAD,
   CHASER_SPAWN,
   COLORS,
@@ -19,7 +18,11 @@ import {
   Point,
   SLOWMO_BEATS,
   SLOWMO_FACTOR,
+  SPEED_EMOJIS,
+  SPEED_OPTIONS,
+  SPEED_TOOLTIPS,
   STAR_BEATS,
+  SpeedMultiplier,
 } from "@/lib/types";
 
 const KEY_MAP: Record<string, Direction> = {
@@ -58,10 +61,12 @@ export default function Game() {
   const rafRef = useRef<number>(0);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const sizeRef = useRef(15);
+  const speedRef = useRef<SpeedMultiplier>(1);
 
   // React state only for low-frequency UI (toolbar enable/disable).
   const [screen, setScreen] = useState<GameState>(GameState.TITLE);
   const [size, setSize] = useState(15);
+  const [speed, setSpeed] = useState<SpeedMultiplier>(1);
 
   // ── helpers bound to current mutable state ──────────────────────────────────
   const tilePx = (p: Point) => {
@@ -143,7 +148,7 @@ export default function Game() {
     if (!item) return;
     if (item.type === "APPLE") {
       g.slowLeft = SLOWMO_BEATS;
-      beatRef.current!.setBPM(BPM_DEFAULT * SLOWMO_FACTOR);
+      beatRef.current!.setBPM(beatRef.current!.getBaseBpm() * SLOWMO_FACTOR);
       g.score += 100;
       delete g.items[k];
     } else if (item.type === "STAR") {
@@ -493,6 +498,7 @@ export default function Game() {
   // ── mount ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     beatRef.current = new BeatEngine();
+    beatRef.current.setSpeedMultiplier(speedRef.current);
     const seed = generateMaze(sizeRef.current);
     gRef.current = {
       state: GameState.TITLE,
@@ -562,22 +568,53 @@ export default function Game() {
     if (gRef.current && gRef.current.state === GameState.TITLE) newMaze();
   };
 
+  const onSpeedChange = (value: SpeedMultiplier) => {
+    setSpeed(value);
+    speedRef.current = value;
+    beatRef.current?.setSpeedMultiplier(value);
+  };
+
+  const toolbarDisabled = screen === GameState.PLAYING || screen === GameState.COUNTDOWN;
+
   return (
     <div className="game-shell">
       <div className="toolbar">
         <label>
           maze size
-          <select
-            value={size}
-            disabled={screen === GameState.PLAYING || screen === GameState.COUNTDOWN}
-            onChange={(e) => onSizeChange(Number(e.target.value))}
-          >
+          <select value={size} disabled={toolbarDisabled} onChange={(e) => onSizeChange(Number(e.target.value))}>
             {SIZES.map((s) => (
               <option key={s} value={s}>
                 {s}×{s}
               </option>
             ))}
           </select>
+        </label>
+        <label>
+          speed
+          <div className="speed-control">
+            <input
+              type="range"
+              className="speed-slider"
+              min={1}
+              max={5}
+              step={1}
+              value={speed}
+              disabled={toolbarDisabled}
+              onChange={(e) => onSpeedChange(Number(e.target.value) as SpeedMultiplier)}
+              title={SPEED_TOOLTIPS[speed]}
+            />
+            <div className="speed-ticks" aria-hidden="true">
+              {SPEED_OPTIONS.map((s) => (
+                <span
+                  key={s}
+                  className={`speed-tick${s === speed ? " active" : ""}`}
+                  title={SPEED_TOOLTIPS[s]}
+                >
+                  {SPEED_EMOJIS[s]}
+                </span>
+              ))}
+            </div>
+          </div>
         </label>
         <span className="hint">Enter to play · WASD / arrows on the beat</span>
       </div>
