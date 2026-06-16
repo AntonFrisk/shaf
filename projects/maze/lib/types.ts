@@ -22,7 +22,7 @@ export interface Layout {
   height: number;
 }
 
-export type ItemType = "APPLE" | "STAR" | "SNOWFLAKE" | "PORTAL";
+export type ItemType = "APPLE" | "STAR" | "SNOWFLAKE" | "PORTAL" | "COIN";
 
 export interface Item {
   type: ItemType;
@@ -52,6 +52,8 @@ export const STAR_BEATS = 8;
 export const SNOWFLAKE_BEATS = 2;
 export const CHASER_SPAWN = 10; // beat number the chaser spawns on
 export const CHASER_LOOK_AHEAD = 2; // anticipation depth for "evil" AI
+export const COIN_SCORE = 50; // points per coin collected
+export const COIN_VALUE = 1; // persistent currency earned per coin
 export const SCHED_AHEAD = 0.1; // seconds the audio scheduler looks ahead
 export const SCHED_TICK_MS = 25; // base scheduler poll rate at 1× speed
 
@@ -89,6 +91,7 @@ export const COLORS = {
   star: "#ffd700",
   snowflake: "#a8e6ff",
   portal: "#4af0ff",
+  coin: "#ffb347",
   player: "#ffffff",
   playerStar: "#ffd700",
   chaser: "#e94560",

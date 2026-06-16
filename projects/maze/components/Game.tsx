@@ -5,11 +5,15 @@ import { nextStep } from "@/lib/astar";
 import { BeatEngine } from "@/lib/beat";
 import { generateMaze } from "@/lib/generate";
 import { isWalkable, key, samePoint, step } from "@/lib/grid";
-import { loadHighScore, saveHighScore } from "@/lib/storage";
+import { loadHighScore, loadCoins, loadUpgrades, saveHighScore, addCoins, buyUpgrade } from "@/lib/storage";
+import { UPGRADES, upgradeCost } from "@/lib/upgrades";
+import type { UpgradeLevels } from "@/lib/upgrades";
 import {
   CHASER_LOOK_AHEAD,
   CHASER_SPAWN,
   COLORS,
+  COIN_SCORE,
+  COIN_VALUE,
   Direction,
   GameState,
   Item,
@@ -42,6 +46,9 @@ interface Mutable {
   playerPos: Point;
   score: number;
   highScore: number;
+  coins: number;
+  runCoins: number;
+  upgrades: UpgradeLevels;
   slowLeft: number;
   starLeft: number;
   starActive: boolean;
@@ -69,6 +76,14 @@ export default function Game() {
   const [screen, setScreen] = useState<GameState>(GameState.TITLE);
   const [size, setSize] = useState(15);
   const [speed, setSpeed] = useState<SpeedMultiplier>(1);
+  const [coins, setCoins] = useState(0);
+  const [upgrades, setUpgrades] = useState<UpgradeLevels>(loadUpgrades);
+
+  const chaserSpawnBeat = () => CHASER_SPAWN + gRef.current!.upgrades.chaserDelay * 2;
+  const slowmoBeats = () => SLOWMO_BEATS + gRef.current!.upgrades.slowExt * 2;
+  const starBeats = () => STAR_BEATS + gRef.current!.upgrades.starExt * 2;
+  const coinScore = () => COIN_SCORE + gRef.current!.upgrades.coinBonus * 25;
+  const survivalScore = () => 10 + gRef.current!.upgrades.survivalBoost * 5;
 
   // ── helpers bound to current mutable state ──────────────────────────────────
   const tilePx = (p: Point) => {
@@ -100,6 +115,7 @@ export default function Game() {
   const resetState = () => {
     const g = gRef.current!;
     g.score = 0;
+    g.runCoins = 0;
     g.slowLeft = 0;
     g.starLeft = 0;
     g.starActive = false;
@@ -150,18 +166,24 @@ export default function Game() {
     const item = g.items[k];
     if (!item) return;
     if (item.type === "APPLE") {
-      g.slowLeft = SLOWMO_BEATS;
+      g.slowLeft = slowmoBeats();
       beatRef.current!.setBPM(beatRef.current!.getBaseBpm() * SLOWMO_FACTOR);
       g.score += 100;
       delete g.items[k];
     } else if (item.type === "STAR") {
-      g.starLeft = STAR_BEATS;
+      g.starLeft = starBeats();
       g.starActive = true;
       g.score += 200;
       delete g.items[k];
     } else if (item.type === "SNOWFLAKE") {
       g.freezeLeft = SNOWFLAKE_BEATS;
       g.score += 150;
+      delete g.items[k];
+    } else if (item.type === "COIN") {
+      g.score += coinScore();
+      g.runCoins += COIN_VALUE;
+      g.coins = addCoins(COIN_VALUE);
+      setCoins(g.coins);
       delete g.items[k];
     }
   };
@@ -177,9 +199,9 @@ export default function Game() {
     const g = gRef.current!;
     if (g.state !== GameState.PLAYING) return;
 
-    g.score += 10; // survival points
+    g.score += survivalScore(); // survival points
 
-    if (!g.chaserActive && !g.chaserEliminated && beatNum >= CHASER_SPAWN) {
+    if (!g.chaserActive && !g.chaserEliminated && beatNum >= chaserSpawnBeat()) {
       g.chaserActive = true;
       g.chaserPos = { ...g.layout.start };
       g.chaserVisual = tilePx(g.chaserPos);
@@ -328,6 +350,15 @@ export default function Game() {
       ctx.stroke();
       ctx.fillStyle = `rgba(74,240,255,${a * 0.25})`;
       ctx.fill();
+    } else if (item.type === "COIN") {
+      const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 220);
+      ctx.fillStyle = COLORS.coin;
+      ctx.beginPath();
+      ctx.arc(x + cs / 2, y + cs / 2, cs * 0.22 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#ffd080";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
   };
 
@@ -445,11 +476,11 @@ export default function Game() {
     ctx.textAlign = "right";
     ctx.fillText(String(g.score), canvas.width - 6, 6);
 
-    if (g.state === GameState.PLAYING && !g.chaserActive && !g.chaserEliminated && beatNumber < CHASER_SPAWN) {
+    if (g.state === GameState.PLAYING && !g.chaserActive && !g.chaserEliminated && beatNumber < chaserSpawnBeat()) {
       ctx.fillStyle = "rgba(233,69,96,0.9)";
       ctx.font = `${fs}px monospace`;
       ctx.textAlign = "center";
-      ctx.fillText(`chaser in ${CHASER_SPAWN - beatNumber} beats`, canvas.width / 2, 6);
+      ctx.fillText(`chaser in ${chaserSpawnBeat() - beatNumber} beats`, canvas.width / 2, 6);
     }
 
     let py = Math.floor(g.cellSize * 0.55);
@@ -470,6 +501,12 @@ export default function Game() {
       ctx.fillStyle = COLORS.snowflake;
       ctx.font = `${fs}px monospace`;
       ctx.fillText(`freeze  x${g.freezeLeft}`, 6, py);
+      py += fs + 4;
+    }
+    if (g.runCoins > 0) {
+      ctx.fillStyle = COLORS.coin;
+      ctx.font = `${fs}px monospace`;
+      ctx.fillText(`coins x${g.runCoins}`, 6, py);
     }
 
     ctx.fillStyle = "rgba(224,224,224,0.4)";
@@ -519,6 +556,11 @@ export default function Game() {
     ctx.fillText("ice = freeze chaser", cx, legendY + legendGap * 2);
     ctx.fillStyle = COLORS.portal;
     ctx.fillText("cyan = portal", cx, legendY + legendGap * 3);
+    ctx.fillStyle = COLORS.coin;
+    ctx.fillText("orange = coin (off-route)", cx, legendY + legendGap * 4);
+    ctx.fillStyle = "#666";
+    ctx.font = `${Math.floor(cs * 0.28)}px monospace`;
+    ctx.fillText(`bank: ${g.coins} coins`, cx, legendY + legendGap * 5.2);
   };
 
   const drawCountdown = (ctx: CanvasRenderingContext2D, g: Mutable, canvas: HTMLCanvasElement) => {
@@ -551,15 +593,20 @@ export default function Game() {
     ctx.fillStyle = "#fff";
     ctx.font = `${Math.floor(cs * 0.68)}px monospace`;
     ctx.fillText(`score: ${g.score}`, cx, cy + cs * 0.35);
+    if (g.runCoins > 0) {
+      ctx.fillStyle = COLORS.coin;
+      ctx.font = `${Math.floor(cs * 0.48)}px monospace`;
+      ctx.fillText(`+${g.runCoins} coin${g.runCoins === 1 ? "" : "s"} saved`, cx, cy + cs * 0.95);
+    }
     if (g.score > 0 && g.score >= g.highScore) {
       ctx.fillStyle = COLORS.star;
       ctx.font = `${Math.floor(cs * 0.48)}px monospace`;
-      ctx.fillText("NEW HIGH SCORE!", cx, cy + cs * 1.15);
+      ctx.fillText("NEW HIGH SCORE!", cx, cy + cs * (g.runCoins > 0 ? 1.55 : 1.15));
     }
     if (Math.sin(Date.now() / 500) > 0) {
       ctx.fillStyle = "#aaa";
       ctx.font = `${Math.floor(cs * 0.42)}px monospace`;
-      ctx.fillText("PRESS ENTER TO RESTART", cx, cy + cs * 1.95);
+      ctx.fillText("PRESS ENTER TO RESTART", cx, cy + cs * (g.runCoins > 0 ? 2.35 : 1.95));
     }
   };
 
@@ -575,6 +622,9 @@ export default function Game() {
       playerPos: { ...seed.layout.start },
       score: 0,
       highScore: loadHighScore(),
+      coins: loadCoins(),
+      runCoins: 0,
+      upgrades: loadUpgrades(),
       slowLeft: 0,
       starLeft: 0,
       starActive: false,
@@ -587,6 +637,8 @@ export default function Game() {
       chaserVisual: { x: 0, y: 0 },
       cellSize: 30,
     };
+    setCoins(gRef.current.coins);
+    setUpgrades(gRef.current.upgrades);
     layoutCanvas();
 
     const onResize = () => layoutCanvas();
@@ -643,11 +695,30 @@ export default function Game() {
     beatRef.current?.setSpeedMultiplier(value);
   };
 
+  const onBuyUpgrade = (id: (typeof UPGRADES)[number]["id"]) => {
+    if (gRef.current?.state !== GameState.TITLE) return;
+    const def = UPGRADES.find((u) => u.id === id)!;
+    const level = upgrades[id];
+    if (level >= def.maxLevel) return;
+    const cost = upgradeCost(def, level);
+    const next = buyUpgrade(id, def.maxLevel, cost);
+    if (!next) return;
+    gRef.current!.upgrades = next;
+    gRef.current!.coins = loadCoins();
+    setUpgrades(next);
+    setCoins(gRef.current!.coins);
+  };
+
   const toolbarDisabled = screen === GameState.PLAYING || screen === GameState.COUNTDOWN;
 
   return (
     <div className="game-shell">
       <div className="toolbar">
+        <div className="coin-bank">
+          <span className="coin-icon">●</span>
+          <span className="coin-count">{coins}</span>
+          <span className="coin-label">coins</span>
+        </div>
         <label>
           maze size
           <select value={size} disabled={toolbarDisabled} onChange={(e) => onSizeChange(Number(e.target.value))}>
@@ -685,7 +756,31 @@ export default function Game() {
             </div>
           </div>
         </label>
-        <span className="hint">Enter to play · WASD / arrows on the beat</span>
+        <div className="shop">
+          <h2>Upgrades</h2>
+          {UPGRADES.map((def) => {
+            const level = upgrades[def.id];
+            const maxed = level >= def.maxLevel;
+            const cost = upgradeCost(def, level);
+            const canAfford = coins >= cost;
+            return (
+              <button
+                key={def.id}
+                type="button"
+                className={`upgrade-btn${maxed ? " maxed" : ""}${!maxed && !canAfford ? " disabled" : ""}`}
+                disabled={screen !== GameState.TITLE || maxed || !canAfford}
+                onClick={() => onBuyUpgrade(def.id)}
+              >
+                <span className="upgrade-name">{def.name}</span>
+                <span className="upgrade-desc">{def.description}</span>
+                <span className="upgrade-meta">
+                  {maxed ? `MAX (${def.maxLevel})` : `${cost} coins · lv ${level}/${def.maxLevel}`}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <span className="hint">Enter to play · WASD / arrows on the beat · coins off the short route</span>
       </div>
       <div className="board-area" ref={boardAreaRef}>
         <canvas ref={canvasRef} aria-label="Echo Rhythm Maze game board" />

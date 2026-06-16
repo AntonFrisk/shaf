@@ -1,4 +1,5 @@
 import { key, samePoint } from "./grid";
+import { shortestPath } from "./astar";
 import { isSolvable } from "./validate";
 import { ItemMap, Layout, Point } from "./types";
 
@@ -74,6 +75,15 @@ export function generateMaze(size = 15): GeneratedMaze {
   for (let k = 0; k < appleCount && i < floors.length; k++) items[key(take())] = { type: "APPLE" };
   for (let k = 0; k < starCount && i < floors.length; k++) items[key(take())] = { type: "STAR" };
   for (let k = 0; k < snowflakeCount && i < floors.length; k++) items[key(take())] = { type: "SNOWFLAKE" };
+
+  // Coins sit off the shortest route so collecting them is a detour risk/reward.
+  const pathKeys = new Set(shortestPath(layout, start, goal).map((p) => key(p)));
+  const offRoute = floors.filter((p) => !pathKeys.has(key(p)) && !items[key(p)]);
+  shuffle(offRoute);
+  const coinCount = Math.max(3, Math.floor(n / 4));
+  for (let k = 0; k < coinCount && k < offRoute.length; k++) {
+    items[key(offRoute[k])] = { type: "COIN" };
+  }
 
   // Belt-and-braces: carved mazes are always solvable, but assert it.
   if (!isSolvable(layout)) return generateMaze(size);
