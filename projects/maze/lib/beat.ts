@@ -1,4 +1,4 @@
-import { BPM_DEFAULT, SCHED_AHEAD, SCHED_TICK_MS } from "./types";
+import { BPM_DEFAULT, SCHED_AHEAD, SCHED_TICK_MS, SpeedMultiplier, bpmForSpeed, schedTickMsForSpeed } from "./types";
 
 type BeatCallback = (beatNumber: number) => void;
 
@@ -11,7 +11,10 @@ type BeatCallback = (beatNumber: number) => void;
 export class BeatEngine {
   private audioCtx: AudioContext | null = null;
   private nextBeatTime = 0;
+  private speed: SpeedMultiplier = 1;
+  private baseBpm = BPM_DEFAULT;
   private intervalSec = 60 / BPM_DEFAULT;
+  private schedTickMs = SCHED_TICK_MS;
   private timer: ReturnType<typeof setInterval> | null = null;
   private beatNumber = 0;
 
@@ -28,16 +31,32 @@ export class BeatEngine {
     const Ctor =
       window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.audioCtx = new Ctor();
-    this.intervalSec = 60 / BPM_DEFAULT;
+    this.intervalSec = 60 / this.baseBpm;
     this.beatNumber = 0;
     this.pulse = 0;
+  }
+
+  setSpeedMultiplier(speed: SpeedMultiplier) {
+    this.speed = speed;
+    this.baseBpm = bpmForSpeed(speed);
+    this.schedTickMs = schedTickMsForSpeed(speed);
+    this.intervalSec = 60 / this.baseBpm;
+    this.restartSchedulerIfRunning();
+  }
+
+  getSpeedMultiplier() {
+    return this.speed;
+  }
+
+  getBaseBpm() {
+    return this.baseBpm;
   }
 
   start() {
     if (!this.audioCtx) this.init();
     void this.audioCtx!.resume();
     this.nextBeatTime = this.audioCtx!.currentTime + 0.08;
-    this.timer = setInterval(() => this.schedule(), SCHED_TICK_MS);
+    this.timer = setInterval(() => this.schedule(), this.schedTickMs);
   }
 
   stop() {
@@ -50,7 +69,13 @@ export class BeatEngine {
   }
 
   resetBPM() {
-    this.intervalSec = 60 / BPM_DEFAULT;
+    this.intervalSec = 60 / this.baseBpm;
+  }
+
+  private restartSchedulerIfRunning() {
+    if (this.timer === null) return;
+    clearInterval(this.timer);
+    this.timer = setInterval(() => this.schedule(), this.schedTickMs);
   }
 
   private schedule() {
