@@ -9,7 +9,7 @@ export default function Home() {
 
   return (
     <main>
-      {playing ? <Game autoStart onBack={() => setPlaying(false)} /> : <Guide onPlay={() => setPlaying(true)} />}
+      {playing ? <Game onBack={() => setPlaying(false)} /> : <Guide onPlay={() => setPlaying(true)} />}
     </main>
   );
 }

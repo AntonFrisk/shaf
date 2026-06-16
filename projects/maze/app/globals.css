@@ -155,7 +155,16 @@ canvas {
   color: #aaa;
   line-height: 1.6;
   max-width: 28rem;
-  margin: 0 auto;
+  margin: 0 auto 1.5rem;
+}
+
+.guide-hero .guide-cta {
+  margin-bottom: 0.75rem;
+}
+
+.guide-cta-hint {
+  font-size: 0.72rem;
+  color: #55556a;
 }
 
 .guide-section h2 {
@@ -417,14 +426,6 @@ canvas {
   content: "X";
 }
 
-.guide-footer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-  padding-top: 0.5rem;
-}
-
 .guide-cta {
   background: linear-gradient(135deg, #e94560, #c73652);
   color: #fff;
@@ -448,9 +449,4 @@ canvas {
 
 .guide-cta:active {
   transform: translateY(0);
-}
-
-.guide-footer-hint {
-  font-size: 0.72rem;
-  color: #55556a;
 }

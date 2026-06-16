@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { COLORS } from "@/lib/types";
 
 interface GuideProps {
@@ -34,6 +35,14 @@ const ITEMS = [
 ] as const;
 
 export default function Guide({ onPlay }: GuideProps) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter") onPlay();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onPlay]);
+
   return (
     <div className="guide">
       <header className="guide-hero">
@@ -44,6 +53,10 @@ export default function Guide({ onPlay }: GuideProps) {
         <p className="guide-tagline">
           Move on the beat. Escape the maze. Outrun the chaser.
         </p>
+        <button type="button" className="guide-cta" onClick={onPlay}>
+          Play now
+        </button>
+        <p className="guide-cta-hint">Press Enter to continue · pick maze size on the next screen</p>
       </header>
 
       <section className="guide-section" aria-labelledby="how-to-play">
@@ -91,7 +104,7 @@ export default function Guide({ onPlay }: GuideProps) {
             <h3>Controls</h3>
             <p>
               Use <strong>WASD</strong> or <strong>arrow keys</strong> to move.
-              Press <strong>Enter</strong> to restart after a round.
+              Press <strong>Enter</strong> on the settings screen to start, or to restart after a round.
             </p>
           </article>
         </div>
@@ -115,13 +128,6 @@ export default function Guide({ onPlay }: GuideProps) {
           ))}
         </ul>
       </section>
-
-      <footer className="guide-footer">
-        <button type="button" className="guide-cta" onClick={onPlay}>
-          Play now
-        </button>
-        <p className="guide-footer-hint">Choose a maze size in the sidebar once you start.</p>
-      </footer>
     </div>
   );
 }
