@@ -202,9 +202,12 @@ export default function Game() {
     const g = gRef.current!;
     beatRef.current!.init();
     resetState();
-    g.countdownVal = 3;   // count down timer
+    g.countdownVal = 2;   // count down timer
     transition(GameState.COUNTDOWN);
-    let n = 3;
+    let n = 2;
+    let timeout1 = 600;
+    let timeout2 = 1000;
+    // new dynamic timeout value
     countdownTimer.current = setInterval(() => {
       n--;
       g.countdownVal = n;
@@ -215,9 +218,9 @@ export default function Game() {
           setScreen(GameState.PLAYING);
           beatRef.current!.onBeat = onBeat;
           beatRef.current!.start();
-        }, 600);
+        }, timeout1);
       }
-    }, 1000);
+    }, timeout2);
   };
 
   // ── render loop ─────────────────────────────────────────────────────────────
@@ -435,12 +438,14 @@ export default function Game() {
     ctx.font = `${Math.floor(cs * 0.34)}px monospace`;
     ctx.fillText("WASD / ARROWS  ·  move on the beat", cx, cy + cs * 1.7);
     ctx.font = `${Math.floor(cs * 0.32)}px monospace`;
+    const legendY = cy + cs * 2.35;
+    const legendGap = cs * 0.42;
     ctx.fillStyle = COLORS.apple;
-    ctx.fillText("green = slow time", cx - cs * 2.0, cy + cs * 2.5);
+    ctx.fillText("green = slow time", cx, legendY);
     ctx.fillStyle = COLORS.star;
-    ctx.fillText("gold = invincible", cx, cy + cs * 2.5);
+    ctx.fillText("gold = invincible", cx, legendY + legendGap);
     ctx.fillStyle = COLORS.portal;
-    ctx.fillText("cyan = portal", cx + cs * 1.9, cy + cs * 2.5);
+    ctx.fillText("cyan = portal", cx, legendY + legendGap * 2);
   };
 
   const drawCountdown = (ctx: CanvasRenderingContext2D, g: Mutable, canvas: HTMLCanvasElement) => {

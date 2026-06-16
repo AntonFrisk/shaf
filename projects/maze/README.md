@@ -9,7 +9,7 @@ This is a Next.js / React rewrite of the original Go + canvas game in
 maze generation, and the Web Audio beat clock — runs **client-side in
 TypeScript**, so there is no backend and it deploys to Vercel with zero config.
 
-## Play
+## How to Play
 
 - **Enter** — start / restart
 - **WASD** or **Arrow keys** — move (only registers on the beat)
