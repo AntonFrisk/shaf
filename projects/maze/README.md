@@ -13,13 +13,18 @@ TypeScript**, so there is no backend and it deploys to Vercel with zero config.
 
 - **Enter** — start / restart
 - **WASD** or **Arrow keys** — move (only registers on the beat)
+- **Space** — activate a stored green apple (slow-mo)
 - **maze size** dropdown — 15×15 / 21×21 / 31×31, a fresh random maze each game
 
 Power-ups:
 
-- 🟢 **green (apple)** — slows the beat to 60% for 8 beats (more time to think)
+- 🟢 **green (apple)** — collect up to 3, then press **Space** to slow the beat to 60% for 8 beats
 - ⭐ **gold (star)** — invincible for 8 beats; touch the chaser to destroy it
+- ❄️ **ice (snowflake)** — freeze the chaser for 2 beats
 - 🔵 **cyan (portal)** — paired teleports, preserves your rhythm step
+- 🟠 **orange (coin)** — off-route currency for upgrades
+
+Only one power-up effect can be active at a time.
 
 The chaser spawns after 10 beats and uses A\* with anticipation: it projects
 your heading a couple of steps ahead to cut you off at intersections.

@@ -10,25 +10,40 @@ export interface GeneratedMaze {
 
 const PORTAL_COLOR = "#4af0ff";
 
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 /**
  * Carve a "perfect" maze with a randomized recursive backtracker, then scatter
  * power-ups and a teleport pair. Size is forced odd so the wall/passage lattice
  * works out (e.g. 15, 21, 31). The result is always solvable because the carved
  * maze is fully connected and items never block tiles.
+ * Optional `seed` yields a reproducible layout (for tests and demos).
  */
-export function generateMaze(size = 15): GeneratedMaze {
+export function generateMaze(size = 15, seed?: number): GeneratedMaze {
+  const rng = seed != null ? mulberry32(seed) : Math.random;
   const n = size % 2 === 0 ? size + 1 : size;
   const grid: number[][] = Array.from({ length: n }, () => Array<number>(n).fill(1));
 
   const inBounds = (r: number, c: number) => r > 0 && r < n - 1 && c > 0 && c < n - 1;
   const carve = (r: number, c: number) => {
     grid[r][c] = 0;
-    for (const [dr, dc] of shuffle([
-      [-2, 0],
-      [2, 0],
-      [0, -2],
-      [0, 2],
-    ])) {
+    for (const [dr, dc] of shuffle(
+      [
+        [-2, 0],
+        [2, 0],
+        [0, -2],
+        [0, 2],
+      ],
+      rng
+    )) {
       const nr = r + dr;
       const nc = c + dc;
       if (inBounds(nr, nc) && grid[nr][nc] === 1) {
@@ -52,7 +67,7 @@ export function generateMaze(size = 15): GeneratedMaze {
       if (grid[r][c] === 0 && !samePoint(p, start) && !samePoint(p, goal)) floors.push(p);
     }
   }
-  shuffle(floors);
+  shuffle(floors, rng);
 
   const items: ItemMap = {};
   let i = 0;
@@ -79,21 +94,21 @@ export function generateMaze(size = 15): GeneratedMaze {
   // Coins sit off the shortest route so collecting them is a detour risk/reward.
   const pathKeys = new Set(shortestPath(layout, start, goal).map((p) => key(p)));
   const offRoute = floors.filter((p) => !pathKeys.has(key(p)) && !items[key(p)]);
-  shuffle(offRoute);
+  shuffle(offRoute, rng);
   const coinCount = Math.max(3, Math.floor(n / 4));
   for (let k = 0; k < coinCount && k < offRoute.length; k++) {
     items[key(offRoute[k])] = { type: "COIN" };
   }
 
   // Belt-and-braces: carved mazes are always solvable, but assert it.
-  if (!isSolvable(layout)) return generateMaze(size);
+  if (!isSolvable(layout)) return generateMaze(size, seed);
 
   return { layout, items };
 }
 
-function shuffle<T>(arr: T[]): T[] {
+function shuffle<T>(arr: T[], rng: () => number = Math.random): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
