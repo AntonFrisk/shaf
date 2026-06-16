@@ -11,19 +11,19 @@ const ITEMS = [
   {
     color: COLORS.apple,
     label: "Slow-Mo Apple",
-    desc: "Slows the beat to 60% for 8 beats — more time to plan your route.",
+    desc: "Collect up to 3. Press Space during a run to slow the beat to 60% for 8 beats — green trails show when slow-mo is active.",
     glyph: "apple",
   },
   {
     color: COLORS.star,
     label: "Power Star",
-    desc: "Turn invincible for 8 beats. Touch the chaser to destroy it for bonus points.",
+    desc: "Instant invincibility for 8 beats. Touch the chaser to destroy it for bonus points — it respawns from the start after 2 seconds.",
     glyph: "star",
   },
   {
     color: COLORS.snowflake,
     label: "Snowflake",
-    desc: "Freezes the chaser for 2 beats while you slip away.",
+    desc: "Instantly freezes the chaser for 2 beats while you slip away.",
     glyph: "snowflake",
   },
   {
@@ -118,6 +118,7 @@ export default function Guide({ onPlay }: GuideProps) {
             <h3>Controls</h3>
             <p>
               Use <strong>WASD</strong> or <strong>arrow keys</strong> to move.
+              Press <strong>Space</strong> to activate a stored green apple.
               Press <strong>Enter</strong> on the settings screen to start.
               Press <strong>Esc</strong> to cancel back to the guide.
             </p>

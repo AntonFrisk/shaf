@@ -18,17 +18,20 @@ run. Press **Esc** to cancel back to the guide.
 - **Enter** — continue from guide / start or restart a run on the settings screen
 - **Esc** — cancel back to the guide (or abort an active run to settings)
 - **WASD** or **Arrow keys** — move (only registers on the beat)
+- **Space** — activate a stored green apple (slow-mo)
 - **maze size** dropdown — 15×15 / 21×21 / 31×31, a fresh random maze each game
 - **speed** slider — 1× to 5× beat tempo (🐢 → 🚀)
 - **upgrade shop** — spend persistent coins on run bonuses between games
 
 Power-ups:
 
-- 🟢 **green (apple)** — slows the beat to 60% for 8 beats (more time to think)
-- ⭐ **gold (star)** — invincible for 8 beats; touch the chaser to destroy it
-- ❄️ **ice (snowflake)** — freezes the chaser for 2 beats
+- 🟢 **green (apple)** — collect up to 3, then press **Space** to slow the beat to 60% for 8 beats (trailing circles while active)
+- ⭐ **gold (star)** — instant invincibility for 8 beats; touch the chaser to destroy it (+500 pts); chaser respawns from start after 2 seconds
+- ❄️ **ice (snowflake)** — instantly freezes the chaser for 2 beats
 - 🔵 **cyan (portal)** — paired teleports, preserves your rhythm step
 - 🟠 **orange (coin)** — off the shortest route; adds score and persistent coins
+
+Star and snowflake apply immediately on pickup. Apple slow-mo is on-demand via Space and cannot activate while another effect is running.
 
 The chaser spawns after 10 beats and uses A\* with anticipation: it projects
 your heading a couple of steps ahead to cut you off at intersections.

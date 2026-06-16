@@ -10,6 +10,7 @@ import { UPGRADES, upgradeCost } from "@/lib/upgrades";
 import type { UpgradeLevels } from "@/lib/upgrades";
 import {
   CHASER_LOOK_AHEAD,
+  CHASER_RESPAWN_MS,
   CHASER_SPAWN,
   COLORS,
   COIN_SCORE,
@@ -20,8 +21,11 @@ import {
   ItemMap,
   Layout,
   Point,
+  MAX_ITEM_INV,
   SLOWMO_BEATS,
   SLOWMO_FACTOR,
+  TRAIL_FADE,
+  TRAIL_MAX_DOTS,
   SPEED_EMOJIS,
   SPEED_OPTIONS,
   SPEED_TOOLTIPS,
@@ -39,6 +43,12 @@ const KEY_MAP: Record<string, Direction> = {
 
 const SIZES = [15, 21, 31];
 
+interface TrailDot {
+  x: number;
+  y: number;
+  alpha: number;
+}
+
 interface Mutable {
   state: GameState;
   layout: Layout;
@@ -49,14 +59,17 @@ interface Mutable {
   coins: number;
   runCoins: number;
   upgrades: UpgradeLevels;
+  appleInv: number;
   slowLeft: number;
   starLeft: number;
   starActive: boolean;
   freezeLeft: number;
+  playerVisual: { x: number; y: number };
+  slowmoTrail: TrailDot[];
   countdownVal: number;
   pendingInput: Direction | null;
   chaserActive: boolean;
-  chaserEliminated: boolean;
+  chaserHasSpawned: boolean;
   chaserPos: Point;
   chaserVisual: { x: number; y: number };
   cellSize: number;
@@ -74,8 +87,10 @@ export default function Game({ onBack }: GameProps = {}) {
   const rafRef = useRef<number>(0);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const playTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chaserRespawnRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onBackRef = useRef(onBack);
   const sizeRef = useRef(15);
+  const seedRef = useRef<number | undefined>(undefined);
   const speedRef = useRef<SpeedMultiplier>(1);
 
   onBackRef.current = onBack;
@@ -92,6 +107,42 @@ export default function Game({ onBack }: GameProps = {}) {
   const starBeats = () => STAR_BEATS + gRef.current!.upgrades.starExt * 2;
   const coinScore = () => COIN_SCORE + gRef.current!.upgrades.coinBonus * 25;
   const survivalScore = () => 10 + gRef.current!.upgrades.survivalBoost * 5;
+
+  const hasBlockingEffect = (g: Mutable) =>
+    g.slowLeft > 0 || g.starLeft > 0 || g.freezeLeft > 0;
+
+  const clearChaserRespawn = () => {
+    if (chaserRespawnRef.current) {
+      clearTimeout(chaserRespawnRef.current);
+      chaserRespawnRef.current = null;
+    }
+  };
+
+  const spawnChaser = () => {
+    const g = gRef.current!;
+    g.chaserActive = true;
+    g.chaserHasSpawned = true;
+    g.chaserPos = { ...g.layout.start };
+    g.chaserVisual = tilePx(g.chaserPos);
+  };
+
+  const scheduleChaserRespawn = () => {
+    clearChaserRespawn();
+    chaserRespawnRef.current = setTimeout(() => {
+      chaserRespawnRef.current = null;
+      const g = gRef.current!;
+      if (g.state !== GameState.PLAYING) return;
+      spawnChaser();
+    }, CHASER_RESPAWN_MS);
+  };
+
+  const activateApple = () => {
+    const g = gRef.current!;
+    if (g.appleInv <= 0 || hasBlockingEffect(g)) return;
+    g.appleInv--;
+    g.slowLeft = slowmoBeats();
+    beatRef.current!.setBPM(beatRef.current!.getBaseBpm() * SLOWMO_FACTOR);
+  };
 
   // ── helpers bound to current mutable state ──────────────────────────────────
   const tilePx = (p: Point) => {
@@ -113,7 +164,7 @@ export default function Game({ onBack }: GameProps = {}) {
 
   const newMaze = () => {
     const g = gRef.current!;
-    const { layout, items } = generateMaze(sizeRef.current);
+    const { layout, items } = generateMaze(sizeRef.current, seedRef.current);
     g.layout = layout;
     g.items = JSON.parse(JSON.stringify(items)) as ItemMap;
     g.playerPos = { ...layout.start };
@@ -124,16 +175,21 @@ export default function Game({ onBack }: GameProps = {}) {
     const g = gRef.current!;
     g.score = 0;
     g.runCoins = 0;
+    g.appleInv = 0;
     g.slowLeft = 0;
     g.starLeft = 0;
     g.starActive = false;
     g.freezeLeft = 0;
+    g.slowmoTrail = [];
     g.pendingInput = null;
     g.chaserActive = false;
-    g.chaserEliminated = false;
+    g.chaserHasSpawned = false;
     g.chaserPos = { row: 0, col: 0 };
+    clearChaserRespawn();
     beatRef.current!.resetBPM();
     newMaze();
+    g.playerVisual = tilePx(g.playerPos);
+    g.slowmoTrail = [];
   };
 
   const transition = (state: GameState) => {
@@ -154,8 +210,8 @@ export default function Game({ onBack }: GameProps = {}) {
     if (!g.chaserActive || !samePoint(g.chaserPos, g.playerPos)) return false;
     if (g.starActive) {
       g.chaserActive = false;
-      g.chaserEliminated = true;
       g.score += 500;
+      scheduleChaserRespawn();
       return false;
     }
     transition(GameState.LOSE);
@@ -174,8 +230,8 @@ export default function Game({ onBack }: GameProps = {}) {
     const item = g.items[k];
     if (!item) return;
     if (item.type === "APPLE") {
-      g.slowLeft = slowmoBeats();
-      beatRef.current!.setBPM(beatRef.current!.getBaseBpm() * SLOWMO_FACTOR);
+      if (g.appleInv >= MAX_ITEM_INV) return;
+      g.appleInv++;
       g.score += 100;
       delete g.items[k];
     } else if (item.type === "STAR") {
@@ -209,10 +265,8 @@ export default function Game({ onBack }: GameProps = {}) {
 
     g.score += survivalScore(); // survival points
 
-    if (!g.chaserActive && !g.chaserEliminated && beatNum >= chaserSpawnBeat()) {
-      g.chaserActive = true;
-      g.chaserPos = { ...g.layout.start };
-      g.chaserVisual = tilePx(g.chaserPos);
+    if (!g.chaserHasSpawned && beatNum >= chaserSpawnBeat()) {
+      spawnChaser();
     } else if (g.chaserActive) {
       if (g.freezeLeft > 0) {
         g.freezeLeft--;
@@ -279,6 +333,7 @@ export default function Game({ onBack }: GameProps = {}) {
       clearTimeout(playTimeoutRef.current);
       playTimeoutRef.current = null;
     }
+    clearChaserRespawn();
     const g = gRef.current!;
     g.state = GameState.TITLE;
     setScreen(GameState.TITLE);
@@ -301,6 +356,23 @@ export default function Game({ onBack }: GameProps = {}) {
       g.chaserVisual.x += (t.x - g.chaserVisual.x) * lerp;
       g.chaserVisual.y += (t.y - g.chaserVisual.y) * lerp;
     }
+
+    const playerTarget = tilePx(g.playerPos);
+    if (g.slowLeft > 0) {
+      g.playerVisual.x += (playerTarget.x - g.playerVisual.x) * 0.22;
+      g.playerVisual.y += (playerTarget.y - g.playerVisual.y) * 0.22;
+      g.slowmoTrail.push({ x: g.playerVisual.x, y: g.playerVisual.y, alpha: 0.7 });
+      if (g.slowmoTrail.length > TRAIL_MAX_DOTS) g.slowmoTrail.shift();
+    } else {
+      g.playerVisual.x = playerTarget.x;
+      g.playerVisual.y = playerTarget.y;
+      g.slowmoTrail.length = 0;
+    }
+    g.slowmoTrail.forEach((d) => {
+      d.alpha -= TRAIL_FADE;
+    });
+    g.slowmoTrail = g.slowmoTrail.filter((d) => d.alpha > 0.03);
+
     beat.pulse = Math.max(0, beat.pulse - 0.04);
 
     ctx.fillStyle = COLORS.bg;
@@ -310,6 +382,7 @@ export default function Game({ onBack }: GameProps = {}) {
 
     if (g.state !== GameState.TITLE && g.state !== GameState.COUNTDOWN) {
       if (g.chaserActive) drawChaser(ctx, g);
+      if (g.slowLeft > 0) drawSlowmoTrail(ctx, g);
       drawPlayer(ctx, g);
       drawHUD(ctx, g, canvas, beat.currentBeat);
     }
@@ -426,9 +499,35 @@ export default function Game({ onBack }: GameProps = {}) {
     ctx.fill();
   };
 
+  const drawSlowmoTrail = (ctx: CanvasRenderingContext2D, g: Mutable) => {
+    const baseR = g.cellSize * 0.32;
+    const n = g.slowmoTrail.length;
+    for (let i = 0; i < n; i++) {
+      const d = g.slowmoTrail[i];
+      const t = (i + 1) / n;
+      const r = baseR * (0.45 + t * 0.45);
+      ctx.fillStyle = `rgba(76,175,80,${d.alpha * t * 0.55})`;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(129,199,132,${d.alpha * t * 0.35})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  };
+
   const drawPlayer = (ctx: CanvasRenderingContext2D, g: Mutable) => {
-    const p = tilePx(g.playerPos);
+    const p = g.slowLeft > 0 ? g.playerVisual : tilePx(g.playerPos);
     const r = g.cellSize * 0.32;
+    if (g.slowLeft > 0) {
+      ctx.strokeStyle = `rgba(76,175,80,${0.25 + 0.15 * Math.sin(Date.now() / 180)})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r + 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     if (g.starActive) {
       ctx.strokeStyle = "rgba(255,215,0,0.45)";
       ctx.lineWidth = 3;
@@ -500,7 +599,7 @@ export default function Game({ onBack }: GameProps = {}) {
     ctx.textAlign = "right";
     ctx.fillText(String(g.score), canvas.width - 6, 6);
 
-    if (g.state === GameState.PLAYING && !g.chaserActive && !g.chaserEliminated && beatNumber < chaserSpawnBeat()) {
+    if (g.state === GameState.PLAYING && !g.chaserHasSpawned && beatNumber < chaserSpawnBeat()) {
       ctx.fillStyle = "rgba(233,69,96,0.9)";
       ctx.font = `${fs}px monospace`;
       ctx.textAlign = "center";
@@ -509,6 +608,13 @@ export default function Game({ onBack }: GameProps = {}) {
 
     let py = Math.floor(g.cellSize * 0.55);
     ctx.textAlign = "left";
+    if (g.appleInv > 0) {
+      ctx.fillStyle = COLORS.apple;
+      ctx.font = `${fs}px monospace`;
+      const hint = hasBlockingEffect(g) ? "" : "  [Space]";
+      ctx.fillText(`apple x${g.appleInv}${hint}`, 6, py);
+      py += fs + 4;
+    }
     if (g.slowLeft > 0) {
       ctx.fillStyle = COLORS.apple;
       ctx.font = `${fs}px monospace`;
@@ -573,7 +679,7 @@ export default function Game({ onBack }: GameProps = {}) {
     const legendY = cy + cs * 2.35;
     const legendGap = cs * 0.42;
     ctx.fillStyle = COLORS.apple;
-    ctx.fillText("green = slow time", cx, legendY);
+    ctx.fillText("green apple = slow · Space to use", cx, legendY);
     ctx.fillStyle = COLORS.star;
     ctx.fillText("gold = invincible", cx, legendY + legendGap);
     ctx.fillStyle = COLORS.snowflake;
@@ -636,9 +742,12 @@ export default function Game({ onBack }: GameProps = {}) {
 
   // ── mount ─────────────────────────────────────────────────────────────────
   useEffect(() => {
+    const s = new URLSearchParams(window.location.search).get("seed");
+    if (s != null && s !== "") seedRef.current = Number(s);
+
     beatRef.current = new BeatEngine();
     beatRef.current.setSpeedMultiplier(speedRef.current);
-    const seed = generateMaze(sizeRef.current);
+    const seed = generateMaze(sizeRef.current, seedRef.current);
     gRef.current = {
       state: GameState.TITLE,
       layout: seed.layout,
@@ -649,14 +758,17 @@ export default function Game({ onBack }: GameProps = {}) {
       coins: loadCoins(),
       runCoins: 0,
       upgrades: loadUpgrades(),
+      appleInv: 0,
       slowLeft: 0,
       starLeft: 0,
       starActive: false,
       freezeLeft: 0,
+      playerVisual: { x: 0, y: 0 },
+      slowmoTrail: [],
       countdownVal: 3,
       pendingInput: null,
       chaserActive: false,
-      chaserEliminated: false,
+      chaserHasSpawned: false,
       chaserPos: { row: 0, col: 0 },
       chaserVisual: { x: 0, y: 0 },
       cellSize: 30,
@@ -664,6 +776,7 @@ export default function Game({ onBack }: GameProps = {}) {
     setCoins(gRef.current.coins);
     setUpgrades(gRef.current.upgrades);
     layoutCanvas();
+    gRef.current.playerVisual = tilePx(gRef.current.playerPos);
 
     const onResize = () => layoutCanvas();
     window.addEventListener("resize", onResize);
@@ -690,6 +803,11 @@ export default function Game({ onBack }: GameProps = {}) {
         return;
       }
       if (g.state === GameState.PLAYING) {
+        if (e.key === " " || e.code === "Space") {
+          e.preventDefault();
+          activateApple();
+          return;
+        }
         const dir = KEY_MAP[e.key];
         if (dir) {
           e.preventDefault();
@@ -708,6 +826,7 @@ export default function Game({ onBack }: GameProps = {}) {
       cancelAnimationFrame(rafRef.current);
       if (countdownTimer.current) clearInterval(countdownTimer.current);
       if (playTimeoutRef.current) clearTimeout(playTimeoutRef.current);
+      clearChaserRespawn();
       beatRef.current?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -815,7 +934,7 @@ export default function Game({ onBack }: GameProps = {}) {
             );
           })}
         </div>
-        <span className="hint">Enter to play · Esc to cancel · WASD / arrows on the beat · coins off the short route</span>
+        <span className="hint">Enter to play · Esc to guide · WASD on beat · Space for apple · coins off-route</span>
       </div>
       <div className="board-area" ref={boardAreaRef}>
         <canvas ref={canvasRef} aria-label="Echo Rhythm Maze game board" />
