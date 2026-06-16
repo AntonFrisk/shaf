@@ -50,7 +50,12 @@ interface Mutable {
   cellSize: number;
 }
 
-export default function Game() {
+interface GameProps {
+  autoStart?: boolean;
+  onBack?: () => void;
+}
+
+export default function Game({ autoStart, onBack }: GameProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boardAreaRef = useRef<HTMLDivElement>(null);
   const beatRef = useRef<BeatEngine | null>(null);
@@ -545,6 +550,8 @@ export default function Game() {
 
     rafRef.current = requestAnimationFrame(renderLoop);
 
+    if (autoStart) enterCountdown();
+
     return () => {
       window.removeEventListener("resize", onResize);
       ro?.disconnect();
@@ -579,7 +586,12 @@ export default function Game() {
             ))}
           </select>
         </label>
-        <span className="hint">Enter to play · WASD / arrows on the beat</span>
+        {onBack && (
+          <button type="button" className="back-btn" onClick={onBack} disabled={screen === GameState.PLAYING || screen === GameState.COUNTDOWN}>
+            ← guide
+          </button>
+        )}
+        <span className="hint">Enter to restart · WASD / arrows on the beat</span>
       </div>
       <div className="board-area" ref={boardAreaRef}>
         <canvas ref={canvasRef} aria-label="Echo Rhythm Maze game board" />
