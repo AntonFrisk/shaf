@@ -104,7 +104,8 @@ export default function Guide({ onPlay }: GuideProps) {
             <h3>Controls</h3>
             <p>
               Use <strong>WASD</strong> or <strong>arrow keys</strong> to move.
-              Press <strong>Enter</strong> on the settings screen to start, or to restart after a round.
+              Press <strong>Enter</strong> on the settings screen to start.
+              Press <strong>Esc</strong> to cancel back to the guide.
             </p>
           </article>
         </div>

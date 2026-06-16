@@ -61,7 +61,11 @@ export default function Game({ onBack }: GameProps = {}) {
   const gRef = useRef<Mutable | null>(null);
   const rafRef = useRef<number>(0);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const playTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onBackRef = useRef(onBack);
   const sizeRef = useRef(15);
+
+  onBackRef.current = onBack;
 
   // React state only for low-frequency UI (toolbar enable/disable).
   const [screen, setScreen] = useState<GameState>(GameState.TITLE);
@@ -217,7 +221,7 @@ export default function Game({ onBack }: GameProps = {}) {
       g.countdownVal = n;
       if (n <= 0) {
         if (countdownTimer.current) clearInterval(countdownTimer.current);
-        setTimeout(() => {
+        playTimeoutRef.current = setTimeout(() => {
           g.state = GameState.PLAYING;
           setScreen(GameState.PLAYING);
           beatRef.current!.onBeat = onBeat;
@@ -225,6 +229,22 @@ export default function Game({ onBack }: GameProps = {}) {
         }, timeout1);
       }
     }, timeout2);
+  };
+
+  const cancelGame = () => {
+    beatRef.current?.stop();
+    if (countdownTimer.current) {
+      clearInterval(countdownTimer.current);
+      countdownTimer.current = null;
+    }
+    if (playTimeoutRef.current) {
+      clearTimeout(playTimeoutRef.current);
+      playTimeoutRef.current = null;
+    }
+    const g = gRef.current!;
+    g.state = GameState.TITLE;
+    setScreen(GameState.TITLE);
+    resetState();
   };
 
   // ── render loop ─────────────────────────────────────────────────────────────
@@ -527,6 +547,11 @@ export default function Game({ onBack }: GameProps = {}) {
 
     const onKey = (e: KeyboardEvent) => {
       const g = gRef.current!;
+      if (e.key === "Escape") {
+        if (g.state === GameState.TITLE) onBackRef.current?.();
+        else cancelGame();
+        return;
+      }
       if (e.key === "Enter") {
         if (g.state === GameState.TITLE) enterCountdown();
         else if (g.state === GameState.WIN || g.state === GameState.LOSE) {
@@ -555,6 +580,7 @@ export default function Game({ onBack }: GameProps = {}) {
       window.removeEventListener("keydown", onKey);
       cancelAnimationFrame(rafRef.current);
       if (countdownTimer.current) clearInterval(countdownTimer.current);
+      if (playTimeoutRef.current) clearTimeout(playTimeoutRef.current);
       beatRef.current?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -588,7 +614,7 @@ export default function Game({ onBack }: GameProps = {}) {
             ← guide
           </button>
         )}
-        <span className="hint">Enter to play · WASD / arrows on the beat</span>
+        <span className="hint">Enter to play · Esc to cancel · WASD / arrows on the beat</span>
       </div>
       <div className="board-area" ref={boardAreaRef}>
         <canvas ref={canvasRef} aria-label="Echo Rhythm Maze game board" />
